@@ -1,10 +1,5 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
-import { useState, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, Edit3, Plus, ArrowLeftRight, Clock, FileDown, Trash2 } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Edit3, Plus, ArrowLeftRight, Clock, FileDown, Trash2 } from 'lucide-react';
 import { DiaryEntry } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { highlightHTML } from '../utils/highlighter';
@@ -32,14 +27,215 @@ export default function CalendarView({
     return today.toISOString().split('T')[0];
   });
   const [expandedEntries, setExpandedEntries] = useState<Record<number, boolean>>({});
+  const [localCategory, setLocalCategory] = useState<string | null>(null);
 
   // Reset expanded entries on month, selected day, or search changes
   useEffect(() => {
     setExpandedEntries({});
   }, [currentDate, selectedDateStr, searchQuery]);
 
+  // Reset local category when selected date changes
+  useEffect(() => {
+    setLocalCategory(null);
+  }, [selectedDateStr]);
+
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth(); // 0-indexed
+
+  // State elements for Direct Date Search & Picker Wheel Modal
+  const [isPickerModalOpen, setIsPickerModalOpen] = useState(false);
+  const [wheelYear, setWheelYear] = useState(() => year);
+  const [wheelMonth, setWheelMonth] = useState(() => month + 1);
+  const [wheelDay, setWheelDay] = useState(() => {
+    const parts = selectedDateStr.split('-');
+    return parts.length >= 3 ? parseInt(parts[2], 10) : 1;
+  });
+
+  const [typedYear, setTypedYear] = useState('');
+  const [typedMonth, setTypedMonth] = useState('');
+  const [typedDay, setTypedDay] = useState('');
+  const [typeErrorMsg, setTypeErrorMsg] = useState('');
+
+  const yearInputRef = useRef<HTMLInputElement>(null);
+  const monthInputRef = useRef<HTMLInputElement>(null);
+  const dayInputRef = useRef<HTMLInputElement>(null);
+
+  // Auto-sync picker states with selected date changes
+  useEffect(() => {
+    if (selectedDateStr) {
+      const parts = selectedDateStr.split('-');
+      if (parts.length >= 3) {
+        const y = parseInt(parts[0], 10);
+        const m = parseInt(parts[1], 10);
+        const d = parseInt(parts[2], 10);
+        if (!isNaN(y)) {
+          setWheelYear(y);
+          setTypedYear(parts[0]);
+        }
+        if (!isNaN(m)) {
+          setWheelMonth(m);
+          setTypedMonth(parts[1]);
+        }
+        if (!isNaN(d)) {
+          setWheelDay(d);
+          setTypedDay(parts[2]);
+        }
+      }
+    }
+  }, [selectedDateStr]);
+
+  // Synchronize manual text date from scroll selection inputs
+  const syncManualText = (y: number, m: number, d: number) => {
+    setTypedYear(String(y));
+    setTypedMonth(String(m).padStart(2, '0'));
+    setTypedDay(String(d).padStart(2, '0'));
+    setTypeErrorMsg('');
+  };
+
+  const validateAndSyncFromInputs = (yStr: string, mStr: string, dStr: string) => {
+    const completeY = yStr.trim();
+    const completeM = mStr.trim();
+    const completeD = dStr.trim();
+
+    if (completeY.length < 4 || completeM.length < 1 || completeD.length < 1) {
+      setTypeErrorMsg('연도는 4자리, 월과 일은 숫자로 입력해주세요.');
+      return;
+    }
+
+    const y = parseInt(completeY, 10);
+    const m = parseInt(completeM, 10);
+    const d = parseInt(completeD, 10);
+
+    if (isNaN(y) || isNaN(m) || isNaN(d)) {
+      setTypeErrorMsg('숫자 형식으로 올바르게 입력해주세요.');
+      return;
+    }
+    
+    if (m < 1 || m > 12) {
+      setTypeErrorMsg('올바르지 않은 월입니다 (1-12)');
+      return;
+    }
+    const maxD = new Date(y, m, 0).getDate();
+    if (d < 1 || d > maxD) {
+      setTypeErrorMsg(`해당 월은 1일부터 ${maxD}일까지 있습니다.`);
+      return;
+    }
+
+    // Is valid! Sync with scrolling wheels
+    setWheelYear(y);
+    setWheelMonth(m);
+    setWheelDay(d);
+    setTypeErrorMsg('');
+  };
+
+  const handleYearChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const clean = e.target.value.replace(/\D/g, '').slice(0, 4);
+    setTypedYear(clean);
+    validateAndSyncFromInputs(clean, typedMonth, typedDay);
+    if (clean.length === 4) {
+      monthInputRef.current?.focus();
+    }
+  };
+
+  const handleMonthChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const clean = e.target.value.replace(/\D/g, '').slice(0, 2);
+    setTypedMonth(clean);
+    validateAndSyncFromInputs(typedYear, clean, typedDay);
+    if (clean.length === 2) {
+      dayInputRef.current?.focus();
+    }
+  };
+
+  const handleDayChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const clean = e.target.value.replace(/\D/g, '').slice(0, 2);
+    setTypedDay(clean);
+    validateAndSyncFromInputs(typedYear, typedMonth, clean);
+  };
+
+  const handleMonthKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Backspace' && typedMonth === '') {
+      yearInputRef.current?.focus();
+    }
+  };
+
+  const handleDayKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Backspace' && typedDay === '') {
+      monthInputRef.current?.focus();
+    }
+  };
+
+  // Extract years with diary entries to filter select fields
+  const existingYears = (() => {
+    const currentYearStr = new Date().getFullYear();
+    const uniqueYears = Array.from(new Set(entries.map(e => {
+      const y = parseInt(e.date.split('-')[0], 10);
+      return isNaN(y) ? null : y;
+    }).filter((y): y is number => y !== null)));
+    
+    if (uniqueYears.length === 0) {
+      uniqueYears.push(currentYearStr);
+    }
+    return uniqueYears.sort((a, b) => a - b);
+  })();
+
+  const hasPrevYear = existingYears.some(y => y < year);
+  const hasNextYear = existingYears.some(y => y > year);
+
+  const handlePrevYear = () => {
+    if (hasPrevYear) {
+      setCurrentDate(new Date(year - 1, month, 1));
+    }
+  };
+
+  const handleNextYear = () => {
+    if (hasNextYear) {
+      setCurrentDate(new Date(year + 1, month, 1));
+    }
+  };
+
+  // Count the saved entries for the newly scrolled/picked Year + Month instantly
+  const countForSelectedMonth = entries.filter(e => {
+    const parts = e.date.split('-');
+    if (parts.length >= 2) {
+      const entryY = parseInt(parts[0], 10);
+      const entryM = parseInt(parts[1], 10);
+      return entryY === wheelYear && entryM === wheelMonth;
+    }
+    return false;
+  }).length;
+
+  const handleConfirmDateSelection = () => {
+    const yStr = typedYear.trim();
+    const mStr = typedMonth.trim().padStart(2, '0');
+    const dStr = typedDay.trim().padStart(2, '0');
+
+    if (yStr.length !== 4) {
+      setTypeErrorMsg('올바른 4자리 연도를 입력해주세요.');
+      return;
+    }
+    const y = parseInt(yStr, 10);
+    const m = parseInt(mStr, 10);
+    const d = parseInt(dStr, 10);
+
+    if (isNaN(y) || isNaN(m) || isNaN(d)) {
+      setTypeErrorMsg('숫자로 올바른 날짜를 입력해주세요.');
+      return;
+    }
+
+    if (m < 1 || m > 12) {
+      setTypeErrorMsg('올바르지 않은 월입니다 (1-12)');
+      return;
+    }
+    const maxD = new Date(y, m, 0).getDate();
+    if (d < 1 || d > maxD) {
+      setTypeErrorMsg(`해당 월은 1일부터 ${maxD}일까지 있습니다.`);
+      return;
+    }
+
+    setCurrentDate(new Date(y, m - 1, 1));
+    setSelectedDateStr(`${y}-${mStr}-${dStr}`);
+    setIsPickerModalOpen(false);
+  };
 
   // Format date helper: Date -> YYYY-MM-DD
   const formatDateString = (y: number, m: number, d: number): string => {
@@ -51,7 +247,6 @@ export default function CalendarView({
   // Days in month
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   // First day of month (0 = Sun, 1 = Mon, ..., 6 = Sat)
-  // Let's standardise so Monday is the first column as shown in Attachment 2 (월 화 수 목 금 토 일)
   const firstDayIndexRaw = new Date(year, month, 1).getDay();
   // Map Sun (0) -> 6, Mon (1) -> 0, Tue (2) -> 1, ..., Sat (6) -> 5
   const firstDayIndex = firstDayIndexRaw === 0 ? 6 : firstDayIndexRaw - 1;
@@ -114,8 +309,14 @@ export default function CalendarView({
     return entries.filter(e => e.date === dateStr);
   };
 
-  // Selected date's diary lists
-  const selectedEntries = getEntriesForDate(selectedDateStr);
+  // Selected date's diary lists (with category filtering compatibility)
+  const dateEntriesRaw = getEntriesForDate(selectedDateStr);
+  const selectedEntries = localCategory
+    ? dateEntriesRaw.filter(e => {
+        const cat = e.category === '일반 일기' ? '일상' : e.category;
+        return cat === localCategory;
+      })
+    : dateEntriesRaw;
 
   // UI rendering of Weekdays (mon-sun)
   const weekdays = ['월', '화', '수', '목', '금', '토', '일'];
@@ -127,6 +328,22 @@ export default function CalendarView({
         {/* Calendar Navigation header: minimized margins */}
         <div className="flex items-center justify-between mb-3.5">
           <div className="flex gap-1">
+            {/* 지난해 (Previous Year) */}
+            <button
+              onClick={handlePrevYear}
+              disabled={!hasPrevYear}
+              className={`p-1 px-1.5 rounded-lg border transition ${
+                hasPrevYear 
+                  ? 'border-[#cbd5e1] hover:bg-gray-50 text-gray-600 cursor-pointer active:scale-95' 
+                  : 'border-stone-100 text-stone-300 cursor-not-allowed bg-stone-50/50'
+              }`}
+              title="지난해 (이전 해)"
+              id="btn-calendar-prev-year"
+            >
+              <ChevronsLeft className="w-3.5 h-3.5" />
+            </button>
+
+            {/* 지난달 (Previous Month) */}
             <button
               onClick={handlePrevMonth}
               className="p-1 px-1.5 rounded-lg border border-[#cbd5e1] hover:bg-gray-50 text-gray-600 transition cursor-pointer active:scale-95"
@@ -135,6 +352,8 @@ export default function CalendarView({
             >
               <ChevronLeft className="w-3.5 h-3.5" />
             </button>
+
+            {/* 오늘 */}
             <button
               onClick={handleToday}
               className="px-2 py-1 text-[11px] font-bold rounded-lg border border-[#cbd5e1] hover:bg-gray-50 text-gray-700 transition cursor-pointer active:scale-95"
@@ -142,6 +361,8 @@ export default function CalendarView({
             >
               오늘
             </button>
+
+            {/* 다음달 (Next Month) */}
             <button
               onClick={handleNextMonth}
               className="p-1 px-1.5 rounded-lg border border-[#cbd5e1] hover:bg-gray-50 text-gray-600 transition cursor-pointer active:scale-95"
@@ -150,10 +371,48 @@ export default function CalendarView({
             >
               <ChevronRight className="w-3.5 h-3.5" />
             </button>
+
+            {/* 다음해 (Next Year) */}
+            <button
+              onClick={handleNextYear}
+              disabled={!hasNextYear}
+              className={`p-1 px-1.5 rounded-lg border transition ${
+                hasNextYear 
+                  ? 'border-[#cbd5e1] hover:bg-gray-50 text-gray-600 cursor-pointer active:scale-95' 
+                  : 'border-stone-100 text-stone-300 cursor-not-allowed bg-stone-50/50'
+              }`}
+              title="다음해 (다음 해)"
+              id="btn-calendar-next-year"
+            >
+              <ChevronsRight className="w-3.5 h-3.5" />
+            </button>
           </div>
-          <h2 className="text-base font-black text-[#7c3aed] flex items-center gap-1 font-mono">
-            <span>{year}년 {month + 1}월</span>
+
+          {/* Interactive Month Picker Trigger Title */}
+          <h2 className="text-base font-black text-[#7c3aed] font-mono">
+            <button
+              onClick={() => {
+                setIsPickerModalOpen(true);
+                // Pre-populate scrollwheel states with the current calendar view's date
+                setWheelYear(year);
+                setWheelMonth(month + 1);
+                const parts = selectedDateStr.split('-');
+                if (parts.length >= 3 && parseInt(parts[0], 10) === year && parseInt(parts[1], 10) === (month + 1)) {
+                  setWheelDay(parseInt(parts[2], 10));
+                } else {
+                  setWheelDay(1);
+                }
+                syncManualText(year, month + 1, wheelDay);
+              }}
+              className="px-2.5 py-1 hover:bg-purple-50 active:scale-95 rounded-xl border border-transparent hover:border-purple-200 transition-all cursor-pointer flex items-center gap-1"
+              title="연/월/일 직접 선택 및 이동 모달 열기"
+              id="btn-calendar-header-picker"
+            >
+              <span>{year}년 {month + 1}월</span>
+              <span className="text-[10px] text-purple-400 font-extrabold select-none">▼</span>
+            </button>
           </h2>
+
           <div className="text-[11px] text-gray-400 font-bold bg-gray-50 px-2 py-0.5 rounded-md border border-gray-100">
             전체: {entries.length}개
           </div>
@@ -233,9 +492,21 @@ export default function CalendarView({
       {/* Selected Day's Diaries container */}
       <div className="flex flex-col gap-4" id="calendar-selected-entries">
         <div className="flex items-center justify-between border-b border-[#ebd9fc] pb-2">
-          <h3 className="text-sm font-bold text-gray-700 flex items-center gap-2">
+          <h3 className="text-sm font-bold text-gray-700 flex flex-wrap items-center gap-2">
             <span className="inline-block w-2.5 h-2.5 rounded-full bg-[#10b981]" />
-            <span>{selectedDateStr.replace(/-/g, '.')} 작성된 일기 ({selectedEntries.length})</span>
+            <span className="flex flex-wrap items-center gap-1.5">
+              <span>{selectedDateStr.replace(/-/g, '.')} 작성된 일기 ({selectedEntries.length})</span>
+              {localCategory && (
+                <span 
+                  onClick={() => setLocalCategory(null)}
+                  className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-purple-50 hover:bg-purple-100 text-[#7c3aed] border border-purple-200 text-xs rounded-full font-bold cursor-pointer transition"
+                  title="카테고리 필터 해제"
+                >
+                  <span>{localCategory}</span>
+                  <span className="text-[10px] font-black text-[#7c3aed]/70">×</span>
+                </span>
+              )}
+            </span>
           </h3>
           <button
             onClick={() => onWriteForDate(selectedDateStr)}
@@ -296,11 +567,23 @@ export default function CalendarView({
                             <span>{entry.time}</span>
                           </span>
                           {entry.category && (
-                            <span className={`px-2.5 py-0.5 text-[10px] font-extrabold text-white rounded-lg select-none uppercase tracking-wide shadow-xs ${
-                              entry.category === '독서록' ? 'bg-emerald-600' :
-                              entry.category === '업무 기록' ? 'bg-amber-500' :
-                              entry.category === '일상' || entry.category === '일반 일기' ? 'bg-[#599e52]' : 'bg-[#7c3aed]'
-                            }`}>
+                            <span 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const catName = entry.category === '일반 일기' ? '일상' : entry.category;
+                                if (localCategory === catName) {
+                                  setLocalCategory(null);
+                                } else {
+                                  setLocalCategory(catName);
+                                }
+                              }}
+                              className={`px-2.5 py-0.5 text-[10px] font-extrabold text-white rounded-lg select-none uppercase tracking-wide shadow-xs cursor-pointer active:scale-95 hover:brightness-95 transition-all ${
+                                entry.category === '독서록' ? 'bg-emerald-600' :
+                                entry.category === '업무 기록' ? 'bg-amber-500' :
+                                entry.category === '일상' || entry.category === '일반 일기' ? 'bg-[#599e52]' : 'bg-[#7c3aed]'
+                              }`}
+                              title={`${entry.category === '일반 일기' ? '일상' : entry.category} 카테고리 필터링`}
+                            >
                               {entry.category === '일반 일기' ? '일상' : entry.category}
                             </span>
                           )}
@@ -437,6 +720,200 @@ export default function CalendarView({
           )}
         </AnimatePresence>
       </div>
+
+      {/* Direct Date Search & Picker Wheel Modal */}
+      <AnimatePresence>
+        {isPickerModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/40 backdrop-blur-xs">
+            <div 
+              className="bg-white rounded-2xl border-2 border-[#7c3aed] p-4 w-full max-w-[280px] shadow-2xl flex flex-col gap-3 text-left animate-in fade-in duration-150"
+              id="calendar-picker-modal"
+            >
+              {/* Header: Compact close button, no text */}
+              <div className="flex items-center justify-end border-b border-stone-200 pb-1.5">
+                <button
+                  type="button"
+                  onClick={() => setIsPickerModalOpen(false)}
+                  className="text-stone-400 hover:text-stone-700 text-sm font-black p-0.5 transition cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Scroll Wheel Style Selection Container: Prominent borders with simplified layouts */}
+              <div className="flex flex-col gap-1.5 bg-stone-50 border-2 border-stone-300 rounded-xl p-2.5 shadow-2xs">
+                <div className="grid grid-cols-3 gap-1">
+                  {/* Year Column */}
+                  <div className="flex flex-col items-center">
+                    <span className="text-[10px] font-extrabold text-stone-500 mb-0.5 select-none font-mono">연도</span>
+                    <div className="h-28 overflow-y-auto w-full flex flex-col gap-0.5 px-0.5 scrollbar-thin">
+                      {existingYears.map(y => {
+                        const isVal = y === wheelYear;
+                        return (
+                          <button
+                            key={y}
+                            type="button"
+                            onClick={() => {
+                              setWheelYear(y);
+                              syncManualText(y, wheelMonth, wheelDay);
+                            }}
+                            className={`py-0.5 text-xs font-mono font-black rounded-md transition-all cursor-pointer ${
+                              isVal 
+                                ? 'bg-[#7c3aed] text-white shadow-xs font-extrabold' 
+                                : 'text-stone-700 hover:bg-stone-200'
+                            }`}
+                          >
+                            {y}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Month Column */}
+                  <div className="flex flex-col items-center border-l-2 border-stone-300">
+                    <span className="text-[10px] font-extrabold text-stone-500 mb-0.5 select-none font-mono">월</span>
+                    <div className="h-28 overflow-y-auto w-full flex flex-col gap-0.5 px-0.5 scrollbar-thin">
+                      {Array.from({ length: 12 }, (_, i) => i + 1).map(m => {
+                        const isVal = m === wheelMonth;
+                        return (
+                          <button
+                            key={m}
+                            type="button"
+                            onClick={() => {
+                              setWheelMonth(m);
+                              syncManualText(wheelYear, m, wheelDay);
+                            }}
+                            className={`py-0.5 text-xs font-mono font-black rounded-md transition-all cursor-pointer ${
+                              isVal 
+                                ? 'bg-[#7c3aed] text-white shadow-xs font-extrabold' 
+                                : 'text-stone-700 hover:bg-stone-200'
+                            }`}
+                          >
+                            {m}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Day Column */}
+                  <div className="flex flex-col items-center border-l-2 border-stone-300">
+                    <span className="text-[10px] font-extrabold text-stone-500 mb-0.5 select-none font-mono">일</span>
+                    <div className="h-28 overflow-y-auto w-full flex flex-col gap-0.5 px-0.5 scrollbar-thin">
+                      {(() => {
+                        const maxD = new Date(wheelYear, wheelMonth, 0).getDate();
+                        const daysArr = Array.from({ length: maxD }, (_, i) => i + 1);
+                        return daysArr.map(d => {
+                          const isVal = d === wheelDay;
+                          return (
+                            <button
+                              key={d}
+                              type="button"
+                              onClick={() => {
+                                setWheelDay(d);
+                                syncManualText(wheelYear, wheelMonth, d);
+                              }}
+                              className={`py-0.5 text-xs font-mono font-black rounded-md transition-all cursor-pointer ${
+                                isVal 
+                                  ? 'bg-[#7c3aed] text-white shadow-xs font-extrabold' 
+                                  : 'text-stone-700 hover:bg-stone-200'
+                              }`}
+                            >
+                              {d}
+                            </button>
+                          );
+                        });
+                      })()}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Live entry count info */}
+                <div className="mt-1.5 text-center border-t-2 border-stone-300 pt-1.5">
+                  <p className="text-[11px] font-bold text-stone-600">
+                    이 달에는 <span className="text-xs font-black text-[#599e52]">{countForSelectedMonth}개</span>의 기록이 있습니다.
+                  </p>
+                </div>
+              </div>
+
+              {/* Split numeric inputs direct entry */}
+              <div className="flex flex-col gap-1 mx-auto w-full">
+                <div className="flex items-center justify-center gap-1">
+                  <input
+                    ref={yearInputRef}
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={typedYear}
+                    onChange={handleYearChange}
+                    placeholder="YYYY"
+                    className="w-16 bg-white border-2 border-stone-400 rounded-lg px-1.5 py-1 text-sm font-mono font-bold text-center outline-none focus:ring-1 focus:ring-[#7c3aed]/30 focus:border-[#7c3aed] transition-all"
+                    id="type-input-year"
+                  />
+                  <span className="text-stone-600 font-extrabold font-mono select-none">-</span>
+                  <input
+                    ref={monthInputRef}
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={typedMonth}
+                    onKeyDown={handleMonthKeyDown}
+                    onChange={handleMonthChange}
+                    placeholder="MM"
+                    className="w-11 bg-white border-2 border-stone-400 rounded-lg px-1.5 py-1 text-sm font-mono font-bold text-center outline-none focus:ring-1 focus:ring-[#7c3aed]/30 focus:border-[#7c3aed] transition-all"
+                    id="type-input-month"
+                  />
+                  <span className="text-stone-600 font-extrabold font-mono select-none">-</span>
+                  <input
+                    ref={dayInputRef}
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={typedDay}
+                    onKeyDown={handleDayKeyDown}
+                    onChange={handleDayChange}
+                    placeholder="DD"
+                    className="w-11 bg-white border-2 border-stone-400 rounded-lg px-1.5 py-1 text-sm font-mono font-bold text-center outline-none focus:ring-1 focus:ring-[#7c3aed]/30 focus:border-[#7c3aed] transition-all"
+                    id="type-input-day"
+                  />
+                </div>
+
+                {/* Statically reserved space for typeErrorMsg to prevent modal size jitter */}
+                <div className="h-5 flex items-center justify-center">
+                  {typeErrorMsg ? (
+                    <p className="text-[10px] text-rose-500 font-bold text-center leading-tight">
+                      {typeErrorMsg}
+                    </p>
+                  ) : (
+                    <p className="text-[10px] text-transparent select-none text-center">
+                      &nbsp;
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsPickerModalOpen(false)}
+                  className="flex-1 py-1.5 border-2 border-stone-400 hover:bg-stone-100 text-stone-700 text-xs font-bold rounded-xl transition cursor-pointer"
+                >
+                  취소
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmDateSelection}
+                  className="flex-1 py-1.5 bg-[#7c3aed] border-2 border-[#7c3aed] hover:bg-[#6d28d9] text-white text-xs font-bold rounded-xl transition cursor-pointer text-center"
+                >
+                  이동하기
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

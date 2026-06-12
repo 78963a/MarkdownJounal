@@ -10,6 +10,8 @@ import { htmlToMarkdown, markdownToHtml } from '../utils/markdown';
 interface EditorProps {
   value: string; // HTML content from parent database
   onChange: (html: string) => void;
+  title?: string;
+  onChangeTitle?: (title: string) => void;
   placeholder?: string;
   borderless?: boolean;
   stickyTopClass?: string;
@@ -18,6 +20,8 @@ interface EditorProps {
 export default function Editor({ 
   value, 
   onChange, 
+  title = '',
+  onChangeTitle,
   placeholder = '오늘 하루 어떤 일이 있었나요? 마크다운(#, **, -, > 등)으로 기록해보세요.', 
   borderless = false, 
   stickyTopClass 
@@ -141,6 +145,17 @@ export default function Editor({
       <div className="flex-1 relative flex flex-col p-2 min-h-0">
         {viewMode === 'edit' ? (
           <div className="flex-1 flex flex-col min-h-0">
+            {/* Title field inside edit mode */}
+            <div className="border-b border-stone-200/80 bg-[#fcfcfb] px-2 mb-2">
+              <input
+                type="text"
+                value={title}
+                onChange={(e) => onChangeTitle?.(e.target.value)}
+                placeholder="제목(필수입력사항은 아닙니다)"
+                className="w-full py-2.5 px-2 bg-transparent text-[#1e293b] font-bold text-lg md:text-xl placeholder-stone-400 focus:outline-none border-none outline-none"
+                id="editor-title-input"
+              />
+            </div>
             <textarea
               ref={textareaRef}
               value={markdownValue}
@@ -153,6 +168,13 @@ export default function Editor({
           </div>
         ) : (
           <div className="flex-1 p-5 overflow-y-auto bg-stone-50/40 rounded-xl min-h-0 select-text">
+            {title && title.trim() && (
+              <div className="mb-4 pb-2.5 border-b border-stone-200/80">
+                <h2 className="text-xl md:text-2xl font-black text-[#1e293b] leading-tight text-left">
+                  {title}
+                </h2>
+              </div>
+            )}
             {markdownValue.trim() ? (
               <div 
                 className="prose max-w-none text-gray-800 leading-relaxed break-words text-base md:text-lg text-left" 

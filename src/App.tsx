@@ -422,15 +422,11 @@ export default function App() {
       .map(t => t.trim().replace(/^#/, ''))
       .filter(Boolean);
 
-    const strippedContent = formContent.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim();
-    const truncatedContent = strippedContent.slice(0, 25);
-    const autoTitle = truncatedContent ? (strippedContent.length > 25 ? truncatedContent + '...' : truncatedContent) : `${finalCategory} 기록`;
-
     const diaryPayload = {
       date: formDate,
       time: formTime || getKoreanFormattedTime(),
       category: finalCategory,
-      title: autoTitle,
+      title: formTitle.trim(),
       content: formContent,
       tags: processedTags,
       createdAt: Date.now()
@@ -597,17 +593,38 @@ export default function App() {
                                 <span>{entry.time}</span>
                               </span>
                               {entry.category && (
-                                <span className={`px-2.5 py-0.5 text-[10px] font-extrabold text-white rounded-lg select-none uppercase tracking-wide shadow-xs ${
-                                  (() => {
-                                    const entryCat = entry.category === '일반 일기' ? '일상' : entry.category;
-                                    const spec = categories.find(c => c.name === entryCat);
-                                    return spec ? spec.color : 'bg-indigo-500';
-                                  })()
-                                }`}>
+                                <span 
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const catName = entry.category === '일반 일기' ? '일상' : entry.category;
+                                    if (selectedCategory === catName) {
+                                      setSelectedCategory(null);
+                                    } else {
+                                      setSelectedCategory(catName);
+                                    }
+                                  }}
+                                  className={`px-2.5 py-0.5 text-[10px] font-extrabold text-white rounded-lg select-none uppercase tracking-wide shadow-xs cursor-pointer active:scale-95 hover:brightness-90 transition-all ${
+                                    (() => {
+                                      const entryCat = entry.category === '일반 일기' ? '일상' : entry.category;
+                                      const spec = categories.find(c => c.name === entryCat);
+                                      return spec ? spec.color : 'bg-indigo-500';
+                                    })()
+                                  }`}
+                                  title={`${entry.category === '일반 일기' ? '일상' : entry.category} 카테고리 필터링`}
+                                >
                                   {entry.category === '일반 일기' ? '일상' : entry.category}
                                 </span>
                               )}
                             </div>
+
+                            {entry.title && entry.title.trim() && (
+                              <h3 
+                                className="text-base md:text-lg font-black text-gray-800 mb-1.5 leading-tight text-left"
+                                id={`diary-title-${entry.id}`}
+                              >
+                                {entry.title}
+                              </h3>
+                            )}
 
                             {/* Main Body with HTML parser */}
                             {(() => {
@@ -1123,6 +1140,8 @@ export default function App() {
                     <Editor
                       value={formContent}
                       onChange={setFormContent}
+                      title={formTitle}
+                      onChangeTitle={setFormTitle}
                       placeholder="이곳에 오늘 하루 있었던 소중한 순간들을 기록해보세요. 마크다운(#, **, -, > 등) 문법을 지원합니다. 언제든 우측 상단의 '미리보기' 버튼을 누르면 실시간 뷰로 확인할 수 있습니다."
                       borderless={true}
                       stickyTopClass="top-0"

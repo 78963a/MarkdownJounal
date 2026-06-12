@@ -7,6 +7,44 @@ import { DiaryEntry } from '../types';
 import { getCategorySlug, htmlToMarkdown } from './markdown';
 import JSZip from 'jszip';
 
+/**
+ * Converts a 12-hour or arbitrary time string to 24-hour style (HH:mm)
+ */
+function convertTo24Hour(timeStr: string): string {
+  if (!timeStr) return '00:00';
+  
+  const pureTimeRegex = /^(\d{1,2}):(\d{2})$/;
+  const matchPure = timeStr.trim().match(pureTimeRegex);
+  if (matchPure) {
+    const hh = String(Number(matchPure[1])).padStart(2, '0');
+    const mm = matchPure[2];
+    return `${hh}:${mm}`;
+  }
+
+  const ampmRegex = /(오전|오후)\s*(\d{1,2}):(\d{2})/;
+  const matchAmpm = timeStr.trim().match(ampmRegex);
+  if (matchAmpm) {
+    const isPm = matchAmpm[1] === '오후';
+    let hours = Number(matchAmpm[2]);
+    const minutes = matchAmpm[3];
+
+    if (isPm) {
+      if (hours < 12) {
+        hours += 12;
+      }
+    } else {
+      if (hours === 12) {
+        hours = 0;
+      }
+    }
+    const hh = String(hours).padStart(2, '0');
+    const mm = String(minutes).padStart(2, '0');
+    return `${hh}:${mm}`;
+  }
+
+  return timeStr;
+}
+
 export interface CompiledMarkdownFile {
   filename: string;
   content: string;
@@ -63,34 +101,40 @@ export function compileEntriesToMarkdown(
       }
     }
 
-    // Construct highly-aesthetic Markdown content
-    let mdContent = `# ${date} 일기 기록\n\n`;
-    if (slug) {
-      const catName = groupEntries[0].category === '일반 일기' ? '일상' : groupEntries[0].category;
-      mdContent = `# ${date} 기록 - ${catName}\n\n`;
-    }
+    // Construct Obsidian-compatible frontmatter & visual block Markdown style
+    let mdContent = `---\ndate: ${date}\n---\n\n`;
 
     for (let i = 0; i < groupEntries.length; i++) {
       const entry = groupEntries[i];
-      const timeStr = entry.time || '기록 시간 미선정';
-      const titleStr = entry.title ? ` • ${entry.title}` : '';
+      const timeStr = convertTo24Hour(entry.time || '00:00');
       
-      mdContent += `## 🕒 ${timeStr}${titleStr}\n`;
-      const catDisplay = entry.category === '일반 일기' ? '일상' : entry.category;
-      if (catDisplay && catDisplay !== '일상') {
-        mdContent += `**태그별 분류**: \`${catDisplay}\`  \n`;
+      let headerLine = `## 🕒 ${timeStr}`;
+      if (entry.title && entry.title.trim()) {
+        headerLine += ` - ${entry.title.trim()}`;
       }
+      mdContent += `${headerLine}\n`;
       
       const markdownBody = htmlToMarkdown(entry.content);
-      mdContent += `${markdownBody}\n\n`;
+      mdContent += `${markdownBody}\n`;
 
+      // Build category and tag list
+      const catDisplay = entry.category === '일반 일기' || entry.category === '일상' ? '일상' : entry.category;
+      const allTags = new Set<string>();
+      if (catDisplay) {
+        allTags.add(catDisplay);
+      }
       if (entry.tags && entry.tags.length > 0) {
-        mdContent += `**태그**: ${entry.tags.map(t => `#${t}`).join(', ')}  \n`;
+        entry.tags.forEach(t => allTags.add(t));
+      }
+
+      if (allTags.size > 0) {
+        const tagLine = Array.from(allTags).map(t => `#${t}`).join(' ');
+        mdContent += `${tagLine}\n`;
       }
 
       // Separator between multiple items in the same day
       if (i < groupEntries.length - 1) {
-        mdContent += `---\n\n`;
+        mdContent += `\n`;
       }
     }
 
