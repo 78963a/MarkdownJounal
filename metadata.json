@@ -1,0 +1,6 @@
+{
+  "name": "마크다운 일기장",
+  "description": "오프라인으로 작동하며 마크다운 형식으로 다운로드할 수 있는 편리한 카테고리별 일기장 어플리케이션",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
