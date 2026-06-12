@@ -309,14 +309,56 @@ export default function CalendarView({
     return entries.filter(e => e.date === dateStr);
   };
 
-  // Selected date's diary lists (with category filtering compatibility)
-  const dateEntriesRaw = getEntriesForDate(selectedDateStr);
-  const selectedEntries = localCategory
-    ? dateEntriesRaw.filter(e => {
+  // Determine whether Day View is active or Month View is active
+  const getSelectedParsed = () => {
+    if (!selectedDateStr) return { selYear: 0, selMonth: 0, selDay: 0 };
+    const parts = selectedDateStr.split('-');
+    if (parts.length < 3) return { selYear: 0, selMonth: 0, selDay: 0 };
+    return {
+      selYear: parseInt(parts[0], 10),
+      selMonth: parseInt(parts[1], 10),
+      selDay: parseInt(parts[2], 10)
+    };
+  };
+
+  const { selYear, selMonth, selDay } = getSelectedParsed();
+  const isDayViewActive = selYear === year && selMonth === (month + 1);
+
+  // Day View Entries (filtered by category if selected)
+  const rawDayEntries = entries.filter(e => e.date === selectedDateStr);
+  const filteredDayEntries = localCategory
+    ? rawDayEntries.filter(e => {
         const cat = e.category === '일반 일기' ? '일상' : e.category;
         return cat === localCategory;
       })
-    : dateEntriesRaw;
+    : rawDayEntries;
+
+  // Month View Entries (filtered by current year and month, and then by category if selected)
+  const rawMonthEntries = entries.filter(e => {
+    const parts = e.date.split('-');
+    if (parts.length >= 2) {
+      const entryY = parseInt(parts[0], 10);
+      const entryM = parseInt(parts[1], 10);
+      return entryY === year && entryM === (month + 1);
+    }
+    return false;
+  });
+
+  // Sort monthly entries by date descending, then time descending
+  const sortedMonthEntries = [...rawMonthEntries].sort((a, b) => {
+    const dateComp = b.date.localeCompare(a.date);
+    if (dateComp !== 0) return dateComp;
+    return (b.time || '').localeCompare(a.time || '');
+  });
+
+  const filteredMonthEntries = localCategory
+    ? sortedMonthEntries.filter(e => {
+        const cat = e.category === '일반 일기' ? '일상' : e.category;
+        return cat === localCategory;
+      })
+    : sortedMonthEntries;
+
+  const activeEntries = isDayViewActive ? filteredDayEntries : filteredMonthEntries;
 
   // UI rendering of Weekdays (mon-sun)
   const weekdays = ['월', '화', '수', '목', '금', '토', '일'];
@@ -473,7 +515,15 @@ export default function CalendarView({
             return (
               <button
                 key={`${dateStr}-${idx}`}
-                onClick={() => setSelectedDateStr(dateStr)}
+                onClick={() => {
+                  setSelectedDateStr(dateStr);
+                  const parts = dateStr.split('-');
+                  if (parts.length >= 2) {
+                    const cellYear = parseInt(parts[0], 10);
+                    const cellMonth = parseInt(parts[1], 10);
+                    setCurrentDate(new Date(cellYear, cellMonth - 1, 1));
+                  }
+                }}
                 className={`relative h-8 md:h-9 rounded-xl flex flex-col items-center justify-center p-0.5 focus:outline-none transition-all group cursor-pointer ${cellBgClass}`}
                 id={`calendar-cell-${dateStr}`}
               >
@@ -495,7 +545,11 @@ export default function CalendarView({
           <h3 className="text-sm font-bold text-gray-700 flex flex-wrap items-center gap-2">
             <span className="inline-block w-2.5 h-2.5 rounded-full bg-[#10b981]" />
             <span className="flex flex-wrap items-center gap-1.5">
-              <span>{selectedDateStr.replace(/-/g, '.')} 작성된 일기 ({selectedEntries.length})</span>
+              {isDayViewActive ? (
+                <span>{selYear}.{selMonth}.{selDay}. 일기 ({activeEntries.length})</span>
+              ) : (
+                <span>{year}.{month + 1}. 일기 ({activeEntries.length})</span>
+              )}
               {localCategory && (
                 <span 
                   onClick={() => setLocalCategory(null)}
@@ -508,20 +562,22 @@ export default function CalendarView({
               )}
             </span>
           </h3>
-          <button
-            onClick={() => onWriteForDate(selectedDateStr)}
-            className="flex items-center gap-1 px-3 py-1 bg-[#10b981] hover:bg-[#059669] text-white text-xs font-semibold rounded-lg transition"
-            id="btn-calendar-add-diary"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>이 날짜에 쓰기</span>
-          </button>
+          {isDayViewActive && (
+            <button
+              onClick={() => onWriteForDate(selectedDateStr)}
+              className="flex items-center gap-1 px-3 py-1 bg-[#10b981] hover:bg-[#059669] text-white text-xs font-semibold rounded-lg transition"
+              id="btn-calendar-add-diary"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>이 날짜에 쓰기</span>
+            </button>
+          )}
         </div>
 
         <AnimatePresence mode="popLayout">
-          {selectedEntries.length > 0 ? (
+          {activeEntries.length > 0 ? (
             <div className="flex flex-col gap-4">
-              {selectedEntries.map((entry) => {
+              {activeEntries.map((entry) => {
                 const dateParts = entry.date.split('-');
                 const yearNum = dateParts[0];
                 const monthNum = parseInt(dateParts[1], 10);
@@ -591,57 +647,57 @@ export default function CalendarView({
 
                         {/* Body contents */}
                         {(() => {
-                          const cleanText = entry.content.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim();
-                          const isLong = cleanText.length > 140;
-                          const isExpanded = expandedEntries[entry.id];
+                           const cleanText = entry.content.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim();
+                           const isLong = cleanText.length > 140;
+                           const isExpanded = expandedEntries[entry.id];
 
-                          if (isLong) {
-                            return (
-                                  <div className="text-base md:text-lg text-gray-700 leading-relaxed max-w-none prose prose-p:my-0.5 mb-1.5 select-text text-left overflow-hidden">
-                                    <motion.div
-                                      layout="position"
-                                      className="overflow-hidden"
-                                    >
-                                      {!isExpanded ? (
-                                        <div>
-                                          <span dangerouslySetInnerHTML={{ __html: highlightHTML(cleanText.slice(0, 140) + '...', searchQuery) }} />
-                                          <button
-                                            type="button"
-                                            onClick={() => setExpandedEntries(prev => ({ ...prev, [entry.id]: true }))}
-                                            className="text-rose-600 font-extrabold hover:text-rose-800 transition cursor-pointer inline-flex items-center gap-1 select-none text-sm ml-1.5 hover:underline"
-                                          >
-                                            ▼ 더보기 ▼
-                                          </button>
-                                        </div>
-                                      ) : (
-                                        <div>
-                                          <div dangerouslySetInnerHTML={{ __html: highlightHTML(entry.content, searchQuery) }} />
-                                          <div className="mt-2 text-right">
-                                            <button
-                                              type="button"
-                                              onClick={() => setExpandedEntries(prev => {
-                                                const updated = { ...prev };
-                                                delete updated[entry.id];
-                                                return updated;
-                                              })}
-                                              className="text-rose-600 font-extrabold hover:text-rose-800 transition cursor-pointer inline-flex items-center gap-1 select-none text-xs hover:underline"
-                                            >
-                                              ▲ 접기 ▲
-                                            </button>
-                                          </div>
-                                        </div>
-                                      )}
-                                    </motion.div>
-                                  </div>
-                            );
-                          }
+                           if (isLong) {
+                             return (
+                                   <div className="text-base md:text-lg text-gray-700 leading-relaxed max-w-none prose prose-p:my-0.5 mb-1.5 select-text text-left overflow-hidden">
+                                     <motion.div
+                                       layout="position"
+                                       className="overflow-hidden"
+                                     >
+                                       {!isExpanded ? (
+                                         <div>
+                                           <span dangerouslySetInnerHTML={{ __html: highlightHTML(cleanText.slice(0, 140) + '...', searchQuery) }} />
+                                           <button
+                                             type="button"
+                                             onClick={() => setExpandedEntries(prev => ({ ...prev, [entry.id]: true }))}
+                                             className="text-[#7c3aed] font-extrabold hover:text-[#5b21b6] transition cursor-pointer inline-flex items-center gap-1 select-none text-sm ml-1.5 hover:underline bg-transparent border-none p-0 outline-none"
+                                           >
+                                             ▼ 더보기 ▼
+                                           </button>
+                                         </div>
+                                       ) : (
+                                         <div>
+                                           <div dangerouslySetInnerHTML={{ __html: highlightHTML(entry.content, searchQuery) }} />
+                                           <div className="mt-2 text-right">
+                                             <button
+                                               type="button"
+                                               onClick={() => setExpandedEntries(prev => {
+                                                 const updated = { ...prev };
+                                                 delete updated[entry.id];
+                                                 return updated;
+                                               })}
+                                               className="text-[#7c3aed] font-extrabold hover:text-[#5b21b6] transition cursor-pointer inline-flex items-center gap-1 select-none text-xs hover:underline bg-transparent border-none p-0 outline-none"
+                                             >
+                                               ▲ 접기 ▲
+                                             </button>
+                                           </div>
+                                         </div>
+                                       )}
+                                     </motion.div>
+                                   </div>
+                             );
+                           }
 
-                          return (
-                            <div 
-                              className="text-base md:text-lg text-gray-700 leading-relaxed max-w-none prose prose-p:my-0.5 mb-1.5 select-text text-left"
-                              dangerouslySetInnerHTML={{ __html: highlightHTML(entry.content, searchQuery) }}
-                            />
-                          );
+                           return (
+                             <div 
+                               className="text-base md:text-lg text-gray-700 leading-relaxed max-w-none prose prose-p:my-0.5 mb-1.5 select-text text-left"
+                               dangerouslySetInnerHTML={{ __html: highlightHTML(entry.content, searchQuery) }}
+                             />
+                           );
                         })()}
                       </div>
 
@@ -707,15 +763,21 @@ export default function CalendarView({
               className="bg-stone-50 border border-dashed border-gray-200 rounded-2xl p-8 text-center text-gray-500"
               id="calendar-no-entries"
             >
-              <p className="text-sm mb-3">설정된 날짜({selectedDateStr})에 적힌 일기가 없습니다.</p>
-              <button
-                onClick={() => onWriteForDate(selectedDateStr)}
-                className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#7c3aed] hover:bg-[#6d28d9] text-white text-xs font-semibold rounded-xl shadow-sm transition"
-                id="btn-calendar-quick-write"
-              >
-                <Plus className="w-4 h-4" />
-                <span>새 마크다운 일기 쓰기</span>
-              </button>
+              {isDayViewActive ? (
+                <>
+                  <p className="text-sm mb-3">해당 날짜({selYear}.{selMonth}.{selDay}.)에 일기가 없습니다.</p>
+                  <button
+                    onClick={() => onWriteForDate(selectedDateStr)}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#7c3aed] hover:bg-[#6d28d9] text-white text-xs font-semibold rounded-xl shadow-sm transition cursor-pointer"
+                    id="btn-calendar-quick-write"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>새 마크다운 일기 쓰기</span>
+                  </button>
+                </>
+              ) : (
+                <p className="text-sm">해당 연월({year}.{month + 1}.)에 일기가 없습니다.</p>
+              )}
             </motion.div>
           )}
         </AnimatePresence>

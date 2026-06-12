@@ -27,11 +27,13 @@ import {
   Sparkles,
   Home,
   Pencil,
-  Check
+  Check,
+  History
 } from 'lucide-react';
-import { DiaryEntry, ActiveTab, CategorySpec } from './types';
+import { DiaryEntry, ActiveTab, CategorySpec, DownloadHistory } from './types';
 import { getAllDiaries, addDiary, updateDiary, deleteDiary, seedInitialData } from './db/indexedDb';
-import { compileEntriesToMarkdown, downloadSingleFile, downloadAllAsZip } from './utils/exporter';
+import { compileEntriesToMarkdown, downloadSingleFile, downloadAllAsZip, downloadRangeAsZip } from './utils/exporter';
+import { getCategorySlug } from './utils/markdown';
 import Editor from './components/Editor';
 import CalendarView from './components/CalendarView';
 import TimeWheelPicker from './components/TimeWheelPicker';
@@ -44,6 +46,55 @@ export default function App() {
   const [entries, setEntries] = useState<DiaryEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedEntries, setExpandedEntries] = useState<Record<number, boolean>>({});
+
+  // Range and download history states
+  const [rangeStartDate, setRangeStartDate] = useState(() => {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    return `${y}-${m}-01`;
+  });
+  const [rangeEndDate, setRangeEndDate] = useState(() => {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  });
+  
+  const [downloadHistory, setDownloadHistory] = useState<DownloadHistory[]>(() => {
+    try {
+      const saved = localStorage.getItem('diary_download_history');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      console.error('Failed to parse download history', e);
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    localStorage.setItem('diary_download_history', JSON.stringify(downloadHistory));
+  }, [downloadHistory]);
+
+  const addDownloadHistoryRecord = (
+    type: 'single' | 'range' | 'all',
+    startDate: string,
+    endDate: string,
+    entryCount: number,
+    fileName: string
+  ) => {
+    const newRecord: DownloadHistory = {
+      id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      timestamp: Date.now(),
+      periodStart: startDate,
+      periodEnd: endDate,
+      type,
+      entryCount,
+      fileName
+    };
+    setDownloadHistory(prev => [newRecord, ...prev]);
+  };
+
 
   // Dynamic categories with state & localStorage backup
   const [categories, setCategories] = useState<CategorySpec[]>(() => {
@@ -443,7 +494,6 @@ export default function App() {
       } else {
         // Create flow
         await addDiary(diaryPayload);
-        showToast('소중한 하루가 일기장에 기록되었습니다 📝', 'success');
       }
 
       // Reset filters and navigate back
@@ -492,6 +542,14 @@ export default function App() {
   });
 
   // Exporter triggers
+  const getCategorySlugsMap = () => {
+    return categories.reduce<Record<string, string>>((acc, cat) => {
+      const catName = cat.name === '일반 일기' ? '일상' : cat.name;
+      acc[catName] = cat.slug;
+      return acc;
+    }, {});
+  };
+
   const handleDownloadAllZip = async () => {
     if (entries.length === 0) {
       showToast('다운로드할 일기가 존재하지 않습니다.', 'error');
@@ -499,8 +557,45 @@ export default function App() {
     }
     try {
       showToast('마크다운 파일 압축 생성을 시작합니다...', 'info');
-      await downloadAllAsZip(entries);
+      const categorySlugsMap = getCategorySlugsMap();
+      await downloadAllAsZip(entries, categorySlugsMap);
       showToast('마크다운 백업 압축파일이 다운로드되었습니다!', 'success');
+      
+      const sortedDates = [...entries].map(e => e.date).sort();
+      const minDate = sortedDates[0] || '';
+      const maxDate = sortedDates[sortedDates.length - 1] || '';
+      const todayStr = new Date().toISOString().split('T')[0];
+      const fn = `마크다운_일기장_백업_${todayStr}.zip`;
+      addDownloadHistoryRecord('all', minDate, maxDate, entries.length, fn);
+    } catch (e) {
+      showToast('다운로드 도중 에러가 발생했습니다.', 'error');
+    }
+  };
+
+  const handleDownloadRangeZip = async () => {
+    if (!rangeStartDate || !rangeEndDate) {
+      showToast('시작일과 종료일을 모두 선택해주세요.', 'error');
+      return;
+    }
+    if (rangeStartDate > rangeEndDate) {
+      showToast('시작일이 종료일보다 늦을 수 없습니다.', 'error');
+      return;
+    }
+
+    const rangeEntries = entries.filter(e => e.date >= rangeStartDate && e.date <= rangeEndDate);
+    if (rangeEntries.length === 0) {
+      showToast('선택한 기간 내에 작성된 일기가 존재하지 않습니다.', 'error');
+      return;
+    }
+
+    try {
+      showToast('선택 기간 마크다운 압축 생성을 시작합니다...', 'info');
+      const categorySlugsMap = getCategorySlugsMap();
+      await downloadRangeAsZip(rangeEntries, rangeStartDate, rangeEndDate, categorySlugsMap);
+      showToast('선택 기간 마크다운 백업 압축파일이 다운로드되었습니다!', 'success');
+
+      const fn = `마크다운_일기장_백업_${rangeStartDate}_~_${rangeEndDate}.zip`;
+      addDownloadHistoryRecord('range', rangeStartDate, rangeEndDate, rangeEntries.length, fn);
     } catch (e) {
       showToast('다운로드 도중 에러가 발생했습니다.', 'error');
     }
@@ -510,13 +605,17 @@ export default function App() {
     const subEntries = entries.filter(e => e.date === date && e.category === entryCategory);
     if (subEntries.length === 0) return;
 
-    const files = compileEntriesToMarkdown(subEntries);
+    const categorySlugsMap = getCategorySlugsMap();
+    const files = compileEntriesToMarkdown(subEntries, categorySlugsMap);
     if (files.length > 0) {
       const { filename, content } = files[0];
       downloadSingleFile(filename, content);
       showToast(`${filename} 파일이 다운로드 되었습니다!`, 'success');
+
+      addDownloadHistoryRecord('single', date, date, subEntries.length, filename);
     }
   };
+
 
   // Reset all tags/category filters
   const handleClearFilters = () => {
@@ -1165,42 +1264,242 @@ export default function App() {
 
             {/* 5. DOWNLOAD BACKUP EXPORTER */}
             {activeTab === 'save' && (
-              <div className="flex flex-col gap-6" id="exporter-sections">
-                <div className="bg-white rounded-3xl border border-[#e2e8f0] p-6 shadow-sm">
-                  <h3 className="text-sm font-bold text-gray-800 flex items-center gap-1.5 mb-2 pb-2.5 border-b border-gray-100">
+              <div className="flex flex-col gap-6 font-sans" id="exporter-sections">
+                <div className="bg-white rounded-3xl border border-[#e2e8f0] p-6 shadow-sm flex flex-col gap-6">
+                  <h3 className="text-sm font-bold text-gray-800 flex items-center gap-1.5 pb-2.5 border-b border-gray-100">
                     <Download className="w-5 h-5 text-[#599e52]" />
                     <span>내 일기 마크다운(Markdown) 문서로 백업 저장</span>
                   </h3>
                   
-                  <p className="text-xs text-gray-500 leading-relaxed mb-5">
-                    브라우저 내부 IndexedDB 영구 저장소에 저장된 일기 데이터들을 하루 단위의 개별 마크다운 파일로 패킹하여 한눈에 다운로드 받을 수 있습니다.
+                  <p className="text-xs text-gray-500 leading-relaxed -mt-3">
+                    브라우저 내부 IndexedDB 영구 저장소에 저장된 일기 데이터들을 하루 단위의 개별 마크다운 파일로 패킹하여 다운로드 받을 수 있습니다.
                     독서록, 업무 기록과 같은 카테고리가 다른 파일은 별도로 나뉘어 압축됩니다.
                   </p>
 
-                  <div className="bg-stone-50 border border-[#e2e8f0] p-4 rounded-2xl mb-5 flex flex-col gap-2.5">
-                    <h4 className="text-xs font-bold text-gray-700">백업 마크다운 저장 사양 안내</h4>
-                    <ul className="text-[11px] text-gray-500 list-disc list-inside space-y-1 font-medium">
-                      <li>기본 일상 및 일반 일기: <strong className="text-indigo-600">YYYY-MM-DD.md</strong> 파일 하나로 자동 통합</li>
-                      <li>독서록 전용 카테고리: <strong className="text-emerald-700">YYYY-MM-DD-book-review.md</strong> 분리 추출</li>
-                      <li>업무 및 일과 소통 기록: <strong className="text-amber-700">YYYY-MM-DD-work-log.md</strong> 분리 추출</li>
-                      <li>임의 카테고리: 입력한 슬러그 이름에 맞춰 자동 매핑 분류 적용</li>
-                    </ul>
+                  <div className="bg-stone-50 border border-[#e2e8f0] p-4 rounded-2xl flex flex-col gap-2.5">
+                    <h4 className="text-xs font-bold text-gray-700">백업 마크다운 저장 사양 안내 (기기 기반 동적 매핑)</h4>
+                    <div className="text-[11px] text-gray-500 font-medium grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {categories.map((cat, idx) => {
+                        const catName = cat.name === '일반 일기' ? '일상' : cat.name;
+                        const slug = cat.slug !== undefined ? cat.slug : getCategorySlug(catName);
+                        
+                        let filenameFormat = 'YYYY-MM-DD.md';
+                        let badgeColor = 'text-indigo-600 bg-indigo-50 border-indigo-100';
+                        
+                        if (slug) {
+                          if (slug.startsWith('_') || slug.startsWith('-')) {
+                            filenameFormat = `YYYY-MM-DD${slug}.md`;
+                          } else {
+                            filenameFormat = `YYYY-MM-DD_${slug}.md`;
+                          }
+                          
+                          if (slug === 'book') {
+                            badgeColor = 'text-emerald-700 bg-emerald-50 border-emerald-100';
+                          } else if (slug === 'work-log') {
+                            badgeColor = 'text-amber-700 bg-amber-50 border-amber-100';
+                          } else if (slug === 'study-log') {
+                            badgeColor = 'text-cyan-700 bg-cyan-50 border-cyan-100';
+                          } else {
+                            badgeColor = 'text-purple-700 bg-purple-50 border-purple-100';
+                          }
+                        }
+
+                        return (
+                          <div key={cat.name || idx} className="flex flex-wrap items-center justify-between gap-1.5 bg-white px-3 py-2 rounded-xl border border-stone-200/50">
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-extrabold text-gray-800 text-[11px]">{catName}</span>
+                              {slug ? (
+                                <span className="text-[9px] text-gray-400 font-mono font-bold bg-neutral-100 px-1 py-0.5 rounded">slug: {slug}</span>
+                              ) : (
+                                <span className="text-[9px] text-gray-450 font-mono font-bold bg-slate-100 px-1 py-0.5 rounded">기본</span>
+                              )}
+                            </div>
+                            <code className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold border ${badgeColor}`}>
+                              {filenameFormat}
+                            </code>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
 
-                  <div className="flex flex-col gap-2">
-                    <button
-                      onClick={handleDownloadAllZip}
-                      className="w-full flex items-center justify-center gap-2 py-4 bg-[#599e52] hover:bg-[#4ca843] active:bg-[#3b8334] text-white text-sm font-bold rounded-2xl shadow transition"
-                      id="btn-action-backup-zip"
-                    >
-                      <Download className="w-4 h-4" />
-                      <span>전체 일기 ZIP 마크다운 압축 백업본 내려받기</span>
-                    </button>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
+                    {/* All Backups block */}
+                    <div className="border border-stone-200/60 rounded-2xl p-4 flex flex-col justify-between" id="save-all-container">
+                      <div>
+                        <h4 className="text-xs font-black text-gray-800 mb-2.5 flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-[#599e52]"></span>
+                          <span>방법 1. 전체 일기 내려받기</span>
+                        </h4>
+                        <p className="text-[11px] text-gray-550 leading-relaxed mb-4">
+                          현재 기기 보관함의 전체 일기(<strong className="text-[#599e52]">{entries.length}개</strong>)를 한 번에 패킹해서 ZIP 마크다운 압축 파일로 일괄 소장합니다.
+                        </p>
+                      </div>
+                      <div>
+                        <button
+                          type="button"
+                          onClick={handleDownloadAllZip}
+                          className="w-full flex items-center justify-center gap-2 py-3 bg-[#599e52] hover:bg-[#4ca843] active:bg-[#3b8334] text-white text-xs font-bold rounded-xl shadow-xs transition cursor-pointer"
+                          id="btn-action-backup-zip"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          <span>전체 일기 ZIP 다운로드</span>
+                        </button>
+                        <p className="text-center text-[10px] text-gray-400 mt-2 font-medium">
+                          기기 복구 보관에 안전하고 유용합니다.
+                        </p>
+                      </div>
+                    </div>
 
-                    <p className="text-center text-[10px] text-gray-400 mt-2 font-medium">
-                      현재 기기에 저장된 {entries.length}개의 일기를 오프라인에서 안전하게 zip 형태로 한 번에 백업합니다.
-                    </p>
+                    {/* Period selection block */}
+                    <div className="border border-stone-200/60 rounded-2xl p-4 flex flex-col justify-between" id="save-range-container">
+                      <div>
+                        <h4 className="text-xs font-black text-gray-800 mb-2.5 flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-[#7c3aed]"></span>
+                          <span>방법 2. 특정 기간 일기만 내려받기</span>
+                        </h4>
+                        <p className="text-[11px] text-gray-550 leading-relaxed mb-4">
+                          원하는 기간 범위(시작일 ~ 종료일)를 직접 설정하여, 지정한 기간 내에 작성된 마크다운 일기만 부분 추출하여 내려받습니다.
+                        </p>
+                        
+                        <div className="grid grid-cols-2 gap-2 mb-4">
+                          <div className="flex flex-col gap-1">
+                            <label className="text-[10px] font-bold text-gray-400 select-none">시작일</label>
+                            <input
+                              type="date"
+                              value={rangeStartDate}
+                              onChange={(e) => setRangeStartDate(e.target.value)}
+                              className="w-full bg-stone-50 border border-stone-200 rounded-xl px-2.5 py-1.5 text-xs font-mono font-bold text-gray-700 outline-none focus:border-[#7c3aed] transition-all"
+                            />
+                          </div>
+                          <div className="flex flex-col gap-1">
+                            <label className="text-[10px] font-bold text-gray-400 select-none">종료일</label>
+                            <input
+                              type="date"
+                              value={rangeEndDate}
+                              onChange={(e) => setRangeEndDate(e.target.value)}
+                              className="w-full bg-stone-50 border border-stone-200 rounded-xl px-2.5 py-1.5 text-xs font-mono font-bold text-gray-700 outline-none focus:border-[#7c3aed] transition-all"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                      <div>
+                        <button
+                          type="button"
+                          onClick={handleDownloadRangeZip}
+                          className="w-full flex items-center justify-center gap-2 py-3 bg-[#7c3aed] hover:bg-[#6d28d9] active:bg-[#5b21b6] text-white text-xs font-bold rounded-xl shadow-xs transition cursor-pointer"
+                          id="btn-action-range-zip"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          <span>선택 기간 ZIP 다운로드</span>
+                        </button>
+                        <p className="text-center text-[10px] text-gray-400 mt-2 font-medium">
+                          원하는 며칠 동안의 기록을 간편하게 별도 보관합니다.
+                        </p>
+                      </div>
+                    </div>
                   </div>
+                </div>
+
+                {/* 2. DOWNLOAD CHRONOLOGICAL LOGS TABLE */}
+                <div className="bg-white rounded-3xl border border-[#e2e8f0] p-6 shadow-sm overflow-hidden flex flex-col gap-4" id="backup-logs-card">
+                  <div className="flex items-center justify-between pb-2.5 border-b border-gray-100">
+                    <h3 className="text-sm font-bold text-gray-800 flex items-center gap-1.5">
+                      <History className="w-5 h-5 text-indigo-500" />
+                      <span>최근 일기 백업 및 다운로드 이력</span>
+                    </h3>
+                    {downloadHistory.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (window.confirm('다운로드 이력을 모두 초기화하시겠습니까? (실제 저장된 일기는 그대로 유지됩니다)')) {
+                            setDownloadHistory([]);
+                          }
+                        }}
+                        className="text-[10px] text-gray-400 hover:text-rose-500 transition-colors font-bold border border-gray-205 hover:border-rose-100 rounded-lg px-2.5 py-1 bg-gray-50/50 hover:bg-rose-50/25 cursor-pointer"
+                        id="history-clear-btn"
+                      >
+                        이력 초기화
+                      </button>
+                    )}
+                  </div>
+
+                  {downloadHistory.length === 0 ? (
+                    <div className="text-center py-8 text-gray-400 text-xs flex flex-col items-center justify-center gap-1 bg-stone-50/50 rounded-2xl border border-dashed border-stone-200" id="empty-history-indicator">
+                      <Clock className="w-7 h-7 text-stone-300 mb-1" />
+                      <p className="font-extrabold text-[#78716c]">백업 또는 다운로드 이력이 아직 존재하지 않습니다.</p>
+                      <p className="text-[10.5px] text-stone-400/80 leading-relaxed font-semibold">
+                        전체/기간 압축 다운로드 혹은 개별 일기 카드의 폴더 내려받기 단추를 가동하여 백업을 개시해보세요.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto rounded-2xl border border-stone-200/70" id="history-logs-table-wrapper">
+                      <table className="min-w-full table-auto divide-y divide-stone-200 text-left text-xs bg-transparent" id="backup-logs-table">
+                        <thead>
+                          <tr className="bg-stone-50 text-[11px] font-black text-gray-500 tracking-wider">
+                            <th className="py-2.5 px-3 whitespace-nowrap">다운로드 일시</th>
+                            <th className="py-2.5 px-3 whitespace-nowrap">유형</th>
+                            <th className="py-2.5 px-3 whitespace-nowrap">대상 백업 일정</th>
+                            <th className="py-2.5 px-3 whitespace-nowrap text-center">일기 수</th>
+                            <th className="py-2.5 px-3 whitespace-nowrap max-w-[150px] truncate">파일명 / 크기</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-stone-100 text-gray-700 font-semibold" id="backup-logs-table-body">
+                          {downloadHistory.map((item) => {
+                            const itemDate = new Date(item.timestamp);
+                            const y = itemDate.getFullYear();
+                            const m = String(itemDate.getMonth() + 1).padStart(2, '0');
+                            const d = String(itemDate.getDate()).padStart(2, '0');
+                            const hh = String(itemDate.getHours()).padStart(2, '0');
+                            const mm = String(itemDate.getMinutes()).padStart(2, '0');
+                            const formattedTime = `${y}.${m}.${d} ${hh}:${mm}`;
+
+                            const typeBadge =
+                              item.type === 'all' ? (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-100/60">
+                                  전체 백업
+                                </span>
+                              ) : item.type === 'range' ? (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-100/60">
+                                  기간 백업
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-stone-100 text-stone-700 border border-stone-200/60">
+                                  개별 일기
+                                </span>
+                              );
+
+                            const periodLabel = 
+                              item.type === 'all' 
+                                ? `${item.periodStart.replace(/-/g, '.')} ~ ${item.periodEnd.replace(/-/g, '.')}`
+                                : item.type === 'range'
+                                  ? `${item.periodStart.replace(/-/g, '.')} ~ ${item.periodEnd.replace(/-/g, '.')}`
+                                  : item.periodStart.replace(/-/g, '.');
+
+                            return (
+                              <tr key={item.id} className="hover:bg-stone-50/70 transition-colors" id={`log-row-${item.id}`}>
+                                <td className="py-3 px-3 whitespace-nowrap text-[11px] font-mono text-gray-500 font-bold">
+                                  {formattedTime}
+                                </td>
+                                <td className="py-3 px-3 whitespace-nowrap">
+                                  {typeBadge}
+                                </td>
+                                <td className="py-3 px-3 whitespace-nowrap text-[11px] font-bold text-gray-800">
+                                  {periodLabel}
+                                </td>
+                                <td className="py-3 px-3 whitespace-nowrap text-center font-bold text-slate-800">
+                                  {item.entryCount}개
+                                </td>
+                                <td className="py-3 px-3 max-w-[155px] truncate text-[11px] font-mono text-gray-400 hover:text-gray-600 transition-colors" title={item.fileName}>
+                                  {item.fileName}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
 
                 <div className="bg-yellow-50 border border-yellow-200 p-5 rounded-3xl" id="about-privacy">
@@ -1612,7 +1911,7 @@ export default function App() {
                 <div>
                   <h3 className="text-base font-bold text-gray-900">작성 취소 확인</h3>
                   <p className="text-sm text-gray-500 mt-1.5 leading-relaxed">
-                    작성 중인 소중한 일기 내용이 아직 저장되지 않았습니다. 정말로 작성을 취소하고 홈화면으로 돌아가시겠습니까?
+                    작성 중인 내용이 저장되지 않았습니다. 작성을 취소하고 홈화면으로 돌아가시겠습니까?
                   </p>
                 </div>
               </div>

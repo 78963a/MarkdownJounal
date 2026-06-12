@@ -16,6 +16,16 @@ export interface DiaryEntry {
 
 export type ActiveTab = 'feed' | 'calendar' | 'write' | 'search' | 'save';
 
+export interface DownloadHistory {
+  id: string;
+  timestamp: number;
+  periodStart: string;
+  periodEnd: string;
+  type: 'single' | 'range' | 'all';
+  entryCount: number;
+  fileName: string;
+}
+
 export interface CategorySpec {
   name: string;
   slug: string;

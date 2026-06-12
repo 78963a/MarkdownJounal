@@ -183,3 +183,32 @@ export async function downloadAllAsZip(entries: DiaryEntry[], categorySlugs?: Re
   element.click();
   document.body.removeChild(element);
 }
+
+/**
+ * Compiles and downloads diaries in a specific range as a ZIP file.
+ */
+export async function downloadRangeAsZip(
+  entries: DiaryEntry[],
+  startDate: string,
+  endDate: string,
+  categorySlugs?: Record<string, string>
+) {
+  if (entries.length === 0) return;
+
+  const files = compileEntriesToMarkdown(entries, categorySlugs);
+  const zip = new JSZip();
+
+  for (const file of files) {
+    zip.file(file.filename, file.content);
+  }
+
+  const content = await zip.generateAsync({ type: 'blob' });
+  const element = document.createElement('a');
+  element.href = URL.createObjectURL(content);
+
+  element.download = `마크다운_일기장_백업_${startDate}_~_${endDate}.zip`;
+  document.body.appendChild(element);
+  element.click();
+  document.body.removeChild(element);
+}
+
