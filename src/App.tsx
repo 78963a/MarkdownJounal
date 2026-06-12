@@ -544,7 +544,7 @@ export default function App() {
             <p className="text-sm font-semibold">데이터베이스를 가져오는 중입니다...</p>
           </div>
         ) : (
-          <div id="active-tab-container">
+          <div id="active-tab-container" className={activeTab === 'write' ? 'flex-1 h-full flex flex-col min-h-0' : ''}>
             
             {/* 1. FEED VIEW TABLE (Chronological List view requested in Attachment 1) */}
             {activeTab === 'feed' && (
@@ -1119,7 +1119,7 @@ export default function App() {
                   </div>
 
                   {/* Scrollable text areas including Editor (Row 3 toolbar is set to sticky within Editor) */}
-                  <div className="flex-1 bg-[#fdfcf9] overflow-y-auto flex flex-col justify-between" id="write-scroll-content">
+                  <div className="flex-1 bg-[#fdfcf9] flex flex-col justify-between min-h-0" id="write-scroll-content">
                     <Editor
                       value={formContent}
                       onChange={setFormContent}
