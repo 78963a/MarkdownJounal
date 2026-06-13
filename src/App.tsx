@@ -29,7 +29,8 @@ import {
   Pencil,
   Check,
   History,
-  ChevronDown
+  ChevronDown,
+  ChevronRight
 } from 'lucide-react';
 import { DiaryEntry, ActiveTab, CategorySpec, DownloadHistory } from './types';
 import { getAllDiaries, addDiary, updateDiary, deleteDiary, seedInitialData } from './db/indexedDb';
@@ -43,12 +44,127 @@ import { highlightHTML } from './utils/highlighter';
 import { motion, AnimatePresence } from 'motion/react';
 
 const PALETTE_COLORS = [
-  'bg-[#599e52]', 'bg-emerald-500', 'bg-teal-500', 'bg-cyan-500', 
+  'bg-[#599e52]', 'bg-emerald-500', 'bg-emerald-300', 'bg-cyan-300', 
   'bg-sky-500', 'bg-blue-500', 'bg-indigo-500', 'bg-violet-500', 
   'bg-purple-500', 'bg-[#c026d3]', 'bg-fuchsia-500', 'bg-pink-500', 
   'bg-rose-500', 'bg-red-500', 'bg-orange-500', 'bg-amber-500', 
   'bg-yellow-500', 'bg-lime-500', 'bg-stone-500', 'bg-slate-500'
 ];
+
+interface HierarchicalTagRow {
+  name: string;      // "가와바타야스나리"
+  fullPath: string;  // "문화/독서/소설/가와바타야스나리"
+  level: number;     // 3 (0-indexed)
+  parentPath: string;// "문화/독서/소설"
+}
+
+// DFS sorting to order tree nodes cleanly for render
+const getSortedTagRows = (hierarchy: string[]): HierarchicalTagRow[] => {
+  const rows: HierarchicalTagRow[] = [];
+  
+  const nodeMap: Record<string, string[]> = {}; // parentPath -> list of child names
+  const roots: string[] = [];
+  
+  hierarchy.forEach(path => {
+    const parts = path.split('/');
+    if (parts.length === 1) {
+      if (!roots.includes(parts[0])) roots.push(parts[0]);
+    } else {
+      const parent = parts.slice(0, parts.length - 1).join('/');
+      const child = parts[parts.length - 1];
+      if (!nodeMap[parent]) nodeMap[parent] = [];
+      if (!nodeMap[parent].includes(child)) nodeMap[parent].push(child);
+    }
+  });
+
+  roots.sort();
+  Object.keys(nodeMap).forEach(k => nodeMap[k].sort());
+
+  const traverse = (name: string, parentPath: string, level: number) => {
+    const fullPath = parentPath ? `${parentPath}/${name}` : name;
+    rows.push({
+      name,
+      fullPath,
+      level,
+      parentPath
+    });
+    
+    const children = nodeMap[fullPath] || [];
+    children.forEach(child => {
+      traverse(child, fullPath, level + 1);
+    });
+  };
+
+  roots.forEach(root => {
+    traverse(root, '', 0);
+  });
+
+  return rows;
+};
+
+// Counter for diary usage (hierarchical count)
+const countDiariesForTag = (tagPath: string, allEntries: DiaryEntry[]): number => {
+  let count = 0;
+  allEntries.forEach(entry => {
+    if (entry.tags && Array.isArray(entry.tags)) {
+      entry.tags.forEach(t => {
+        if (t === tagPath || t.startsWith(tagPath + '/')) {
+          count++;
+        }
+      });
+    }
+  });
+  return count;
+};
+
+// Map terminal leaf word or node name to full hierarchical prefix paths if configured
+const resolveTagToHierarchy = (tag: string, hierarchy: string[]): string => {
+  const cleanTag = tag.trim().replace(/^#/, '');
+  if (!cleanTag) return '';
+
+  // 1. Exact match
+  if (hierarchy.includes(cleanTag)) {
+    return cleanTag;
+  }
+
+  // 2. Search for path ending with "/cleanTag"
+  const suffixMatch = hierarchy.find(path => {
+    const parts = path.split('/');
+    return parts[parts.length - 1] === cleanTag;
+  });
+  if (suffixMatch) {
+    return suffixMatch;
+  }
+
+  // 3. Search for path containing segment "cleanTag"
+  const segmentMatch = hierarchy.find(path => {
+    const parts = path.split('/');
+    const index = parts.indexOf(cleanTag);
+    if (index !== -1) {
+      return parts.slice(0, index + 1).join('/');
+    }
+    return false;
+  });
+  if (segmentMatch) {
+    const parts = segmentMatch.split('/');
+    const idx = parts.indexOf(cleanTag);
+    return parts.slice(0, idx + 1).join('/');
+  }
+
+  // 4. Return as-is
+  return cleanTag;
+};
+
+// Resolves a space/comma-delimited tagging string into full matching hierachial structures
+const resolveAllTagsText = (text: string, hierarchy: string[]): string => {
+  const rawList = text.split(/[,,| ]+/).map(t => t.trim().replace(/^#/, '')).filter(Boolean);
+  const resolvedList = rawList.map(tag => {
+    if (tag.includes('/')) return tag;
+    return resolveTagToHierarchy(tag, hierarchy);
+  });
+  const uniqueResolved = Array.from(new Set(resolvedList));
+  return uniqueResolved.join(', ');
+};
 
 export default function App() {
   // DB Entries
@@ -139,6 +255,40 @@ export default function App() {
   const [categoryInputSlug, setCategoryInputSlug] = useState('');
   const [categoryInputColor, setCategoryInputColor] = useState('bg-indigo-500');
 
+  // Dynamic hierarchical tags with localStorage backup
+  const [tagsHierarchy, setTagsHierarchy] = useState<string[]>(() => {
+    const saved = localStorage.getItem('diary_tags_hierarchy_v1');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      } catch (e) {
+        console.error("Failed parsing localStorage tagsHierarchy", e);
+      }
+    }
+    // Default initial hierarchy (up to 4 levels max)
+    return [
+      '문화',
+      '문화/독서',
+      '문화/독서/소설',
+      '문화/독서/소설/가와바타야스나리',
+      '일상',
+      '일상/식사',
+      '일상/식사/카페',
+      '일상/운동',
+      '일상/운동/피트니스',
+      '쇼핑',
+      '쇼핑/의류',
+      '쇼핑/의류/액세서리'
+    ];
+  });
+
+  useEffect(() => {
+    localStorage.setItem('diary_tags_hierarchy_v1', JSON.stringify(tagsHierarchy));
+  }, [tagsHierarchy]);
+
   const isEditingDefault = !!(editingCategorySpec && categories[0] && editingCategorySpec.name === categories[0].name);
 
   // Persist categories list on change
@@ -177,6 +327,15 @@ export default function App() {
   // Writing UI popover / modal states
   const [activeCategoryModal, setActiveCategoryModal] = useState(false);
   const [activeTagModal, setActiveTagModal] = useState(false);
+  const [isTagManageModalOpen, setIsTagManageModalOpen] = useState(false);
+  const [tagHierarchyInputName, setTagHierarchyInputName] = useState('');
+  const [tagHierarchyInputParent, setTagHierarchyInputParent] = useState('');
+  const [tagHierarchyEditingPath, setTagHierarchyEditingPath] = useState<string | null>(null);
+  const [collapsedTags, setCollapsedTags] = useState<string[]>([]);
+  const [plainTagToInsert, setPlainTagToInsert] = useState<string | null>(null);
+  const [plainTagInsertParent, setPlainTagInsertParent] = useState<string>('');
+  const [plainTagToRename, setPlainTagToRename] = useState<string | null>(null);
+  const [plainTagRenameInput, setPlainTagRenameInput] = useState<string>('');
   const [activeDateModal, setActiveDateModal] = useState(false);
   const [activeTimeModal, setActiveTimeModal] = useState(false);
   const [showDiscardConfirmModal, setShowDiscardConfirmModal] = useState(false);
@@ -294,6 +453,262 @@ export default function App() {
     setShowCustomCategoryInput(false);
     setFormTagsString('');
     setActiveTab('write');
+  };
+
+  // Tag Hierarchy Manipulation Handlers
+  const handleSaveTagHierarchy = async () => {
+    const name = tagHierarchyInputName.trim().replace(/\//g, '');
+    if (!name) {
+      showToast('태그 이름을 입력해주세요.', 'error');
+      return;
+    }
+
+    const parent = tagHierarchyInputParent;
+    const newPath = parent ? `${parent}/${name}` : name;
+
+    // Check depth restriction (max 4 levels)
+    const level = newPath.split('/').length;
+    if (level > 4) {
+      showToast('태그 계층은 최대 4단계까지만 설정 가능합니다.', 'error');
+      return;
+    }
+
+    if (tagHierarchyEditingPath === null) {
+      // ADDING MODE
+      if (tagsHierarchy.includes(newPath)) {
+        showToast('이미 동일한 경로에 태그가 존재합니다.', 'error');
+        return;
+      }
+
+      setTagsHierarchy([...tagsHierarchy, newPath]);
+      showToast('신규 계층 태그가 추가되었습니다.', 'success');
+    } else {
+      // EDITING / MOVING MODE
+      const oldPath = tagHierarchyEditingPath;
+      if (oldPath === newPath) {
+        // Just resetting
+        setTagHierarchyEditingPath(null);
+        setTagHierarchyInputName('');
+        setTagHierarchyInputParent('');
+        return;
+      }
+
+      // Check if trying to select a descendant of self as parent
+      if (parent === oldPath || parent.startsWith(oldPath + '/')) {
+        showToast('자기 자신이나 하위 태그를 부모로 설정할 수 없습니다.', 'error');
+        return;
+      }
+
+      // Check duplicate at new path location
+      const isDuplicate = tagsHierarchy.some(path => path !== oldPath && path === newPath);
+      if (isDuplicate) {
+        showToast('이미 동일한 경로에 태그가 존재합니다.', 'error');
+        return;
+      }
+
+      // Calculate child subtree height to prevent >4 levels
+      const descendantPaths = tagsHierarchy.filter(path => path.startsWith(oldPath + '/'));
+      let maxDepthDiff = 0;
+      descendantPaths.forEach(path => {
+        const diff = path.split('/').length - oldPath.split('/').length;
+        if (diff > maxDepthDiff) maxDepthDiff = diff;
+      });
+
+      if (level + maxDepthDiff > 4) {
+        showToast('이 이동은 4단계를 초과하는 계층을 생성하여 불가능합니다.', 'error');
+        return;
+      }
+
+      // 1. Update tagsHierarchy lists
+      const updatedHierarchy = tagsHierarchy.map(path => {
+        if (path === oldPath) {
+          return newPath;
+        }
+        if (path.startsWith(oldPath + '/')) {
+          return path.replace(oldPath + '/', newPath + '/');
+        }
+        return path;
+      });
+      setTagsHierarchy(updatedHierarchy);
+
+      // 2. Perform database diary entries rewrite
+      let affectedDiaryCount = 0;
+      const updatedEntries = await Promise.all(
+        entries.map(async (entry) => {
+          if (entry.tags && Array.isArray(entry.tags)) {
+            let matches = false;
+            const newTags = entry.tags.map(t => {
+              if (t === oldPath) {
+                matches = true;
+                return newPath;
+              }
+              if (t.startsWith(oldPath + '/')) {
+                matches = true;
+                return t.replace(oldPath + '/', newPath + '/');
+              }
+              return t;
+            });
+
+            if (matches) {
+              affectedDiaryCount++;
+              const updatedEntry = { ...entry, tags: newTags };
+              await updateDiary(updatedEntry);
+              return updatedEntry;
+            }
+          }
+          return entry;
+        })
+      );
+
+      setEntries(updatedEntries);
+      showToast(`태그 변경 완료! ${affectedDiaryCount}개의 관련 일기도 업데이트되었습니다.`, 'success');
+      setTagHierarchyEditingPath(null);
+    }
+
+    // Reset inputs
+    setTagHierarchyInputName('');
+    setTagHierarchyInputParent('');
+  };
+
+  const handleDeleteTagHierarchy = async (pathToDelete: string) => {
+    const isConfirmed = window.confirm(`'${pathToDelete}' 태그와 모든 하위 대상을 계층 보관함에서 해제하시겠습니까?\n해당 태그가 쓰인 기존 모든 일기에서도 지워집니다.`);
+    if (!isConfirmed) return;
+
+    // 1. Update tagsHierarchy list
+    const updatedHierarchy = tagsHierarchy.filter(path => path !== pathToDelete && !path.startsWith(pathToDelete + '/'));
+    setTagsHierarchy(updatedHierarchy);
+
+    // 2. Perform database entries cleanup
+    let affectedDiaryCount = 0;
+    const updatedEntries = await Promise.all(
+      entries.map(async (entry) => {
+        if (entry.tags && Array.isArray(entry.tags)) {
+          const originalLen = entry.tags.length;
+          const newTags = entry.tags.filter(t => t !== pathToDelete && !t.startsWith(pathToDelete + '/'));
+          if (newTags.length < originalLen) {
+            affectedDiaryCount++;
+            const updatedEntry = { ...entry, tags: newTags };
+            await updateDiary(updatedEntry);
+            return updatedEntry;
+          }
+        }
+        return entry;
+      })
+    );
+
+    setEntries(updatedEntries);
+    showToast(`태그 영구 삭제 및 ${affectedDiaryCount}개의 관련 일기 태그가 정리되었습니다.`, 'success');
+
+    // Reset editing if active
+    if (tagHierarchyEditingPath === pathToDelete || (tagHierarchyEditingPath && tagHierarchyEditingPath.startsWith(pathToDelete + '/'))) {
+      setTagHierarchyEditingPath(null);
+      setTagHierarchyInputName('');
+      setTagHierarchyInputParent('');
+    }
+  };
+
+  // 기타 개별 태그 삭제, 수정, 계층 편입 핸들러
+  const handleRenamePlainTag = async (oldName: string, newName: string) => {
+    const trimmedNew = newName.trim().replace(/\//g, '');
+    if (!trimmedNew) {
+      showToast('태그 이름을 입력해주세요.', 'error');
+      return;
+    }
+    if (oldName === trimmedNew) {
+      setPlainTagToRename(null);
+      setPlainTagRenameInput('');
+      return;
+    }
+
+    let affectedDiaryCount = 0;
+    const updatedEntries = await Promise.all(
+      entries.map(async (entry) => {
+        if (entry.tags && Array.isArray(entry.tags)) {
+          if (entry.tags.includes(oldName)) {
+            affectedDiaryCount++;
+            const updatedEntry = {
+              ...entry,
+              tags: entry.tags.map(t => t === oldName ? trimmedNew : t)
+            };
+            await updateDiary(updatedEntry);
+            return updatedEntry;
+          }
+        }
+        return entry;
+      })
+    );
+
+    setEntries(updatedEntries);
+    showToast(`기타 태그명이 '${trimmedNew}'(으)로 변경되었습니다. (일기 ${affectedDiaryCount}개 반영)`, 'success');
+    setPlainTagToRename(null);
+    setPlainTagRenameInput('');
+  };
+
+  const handleDeletePlainTag = async (tagName: string) => {
+    const isConfirmed = window.confirm(`'${tagName}' 태그를 일기 보관함에서 삭제하시겠습니까?\n해당 태그가 쓰인 기존 모든 일기에서도 지워집니다.`);
+    if (!isConfirmed) return;
+
+    let affectedDiaryCount = 0;
+    const updatedEntries = await Promise.all(
+      entries.map(async (entry) => {
+        if (entry.tags && Array.isArray(entry.tags)) {
+          if (entry.tags.includes(tagName)) {
+            affectedDiaryCount++;
+            const updatedEntry = {
+              ...entry,
+              tags: entry.tags.filter(t => t !== tagName)
+            };
+            await updateDiary(updatedEntry);
+            return updatedEntry;
+          }
+        }
+        return entry;
+      })
+    );
+
+    setEntries(updatedEntries);
+    showToast(`기타 태그가 완전히 삭제되었습니다. (일기 ${affectedDiaryCount}개 반영)`, 'success');
+  };
+
+  const handleInsertPlainTagToHierarchy = async (tagName: string, parentPath: string) => {
+    const targetPath = parentPath ? `${parentPath}/${tagName}` : tagName;
+
+    if (targetPath.split('/').length > 4) {
+      showToast('태그 계층은 최대 4단계까지만 가능합니다.', 'error');
+      return;
+    }
+
+    if (tagsHierarchy.includes(targetPath)) {
+      showToast('이미 계층 구조에 동일한 경로가 존재합니다.', 'error');
+      return;
+    }
+
+    setTagsHierarchy([...tagsHierarchy, targetPath]);
+
+    let affectedDiaryCount = 0;
+    if (parentPath) {
+      const updatedEntries = await Promise.all(
+        entries.map(async (entry) => {
+          if (entry.tags && Array.isArray(entry.tags)) {
+            if (entry.tags.includes(tagName)) {
+              affectedDiaryCount++;
+              const updatedEntry = {
+                ...entry,
+                tags: entry.tags.map(t => t === tagName ? targetPath : t)
+              };
+              await updateDiary(updatedEntry);
+              return updatedEntry;
+            }
+          }
+          return entry;
+        })
+      );
+      setEntries(updatedEntries);
+    }
+
+    showToast(`'${tagName}' 태그가 계층 구조 '${targetPath}'(으)로 편입되었습니다.`, 'success');
+    setPlainTagToInsert(null);
+    setPlainTagInsertParent('');
   };
 
   // Edit existing diary entry
@@ -483,8 +898,9 @@ export default function App() {
       return;
     }
 
-    // Process tag string (split by comma / space)
-    const processedTags = formTagsString
+    // Process tag string (split by comma / space) with hierarchy resolution
+    const resolvedTagsString = resolveAllTagsText(formTagsString, tagsHierarchy);
+    const processedTags = resolvedTagsString
       .split(/[,,| ]+/)
       .map(t => t.trim().replace(/^#/, ''))
       .filter(Boolean);
@@ -803,16 +1219,31 @@ export default function App() {
                             {/* Interactive Tags */}
                             <div className="flex flex-wrap gap-1">
                               {entry.tags && entry.tags.length > 0 ? (
-                                entry.tags.map(tag => (
-                                  <button
-                                    key={tag}
-                                    onClick={() => setSelectedTag(tag === selectedTag ? null : tag)}
-                                    className="text-[11px] font-bold text-[#599e52] hover:text-[#7fbf78] bg-[#f0f9f0] hover:bg-emerald-50 px-2 py-1 rounded-full transition-colors"
-                                    id={`tag-btn-entry-${entry.id}-${tag}`}
-                                  >
-                                    #{tag}
-                                  </button>
-                                ))
+                                entry.tags.map(tag => {
+                                  const isSelected = selectedTag === tag;
+                                  return (
+                                    <button
+                                      key={tag}
+                                      onClick={() => setSelectedTag(isSelected ? null : tag)}
+                                      className={`text-[10px] sm:text-[11px] font-extrabold px-2.5 py-1 rounded-full transition-all flex items-center gap-0.5 cursor-pointer border ${
+                                        isSelected
+                                          ? 'bg-[#599e52] border-[#599e52] text-white shadow-3xs font-black'
+                                          : 'text-[#599e52] hover:text-[#7fbf78] bg-[#f0f9f0] border-emerald-100 hover:bg-emerald-50'
+                                      }`}
+                                      id={`tag-btn-entry-${entry.id}-${tag}`}
+                                    >
+                                      <span className={isSelected ? 'text-white/80' : 'text-[#3a8433]'}>#</span>
+                                      {tag.split('/').map((part, idx, arr) => (
+                                        <span key={idx} className="flex items-center">
+                                          {part}
+                                          {idx < arr.length - 1 && (
+                                            <span className={`mx-0.5 text-[9px] font-black ${isSelected ? 'text-white/50' : 'text-[#9ad194]'}`}>›</span>
+                                          )}
+                                        </span>
+                                      ))}
+                                    </button>
+                                  );
+                                })
                               ) : (
                                 <span className="text-xs text-gray-300 italic">태그 없음</span>
                               )}
@@ -1156,18 +1587,29 @@ export default function App() {
                               onClick={() => setActiveTagModal(false)}
                             >
                               <div 
-                                className="bg-white border border-stone-200 shadow-2xl rounded-3xl w-full max-w-sm p-6 text-left flex flex-col gap-4 animate-in fade-in zoom-in-95 duration-200"
+                                className="bg-white border border-stone-200 shadow-2xl rounded-3xl w-full max-w-sm px-2 py-6 text-left flex flex-col gap-4"
                                 onClick={(e) => e.stopPropagation()}
                               >
                                 <div className="flex items-center justify-between pb-2 border-b border-stone-150">
-                                  <span className="text-base font-bold text-gray-800">일기 태그 등록</span>
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-base font-bold text-gray-800">일기 태그 등록</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setIsTagManageModalOpen(true);
+                                      }}
+                                      className="text-[10px] font-extrabold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-150 p-1 px-1.5 rounded-lg transition-colors flex items-center gap-0.5 cursor-pointer shadow-3xs"
+                                    >
+                                      <span>🔧 태그 관리</span>
+                                    </button>
+                                  </div>
                                   <button type="button" onClick={() => setActiveTagModal(false)} className="text-gray-400 hover:text-gray-600 p-1">
                                     <X className="w-5 h-5" />
                                   </button>
                                 </div>
                                 
                                 <div className="flex flex-col gap-1.5">
-                                  <label className="text-xs font-bold text-gray-500">태그 입력 (쉼표 또는 공백으로 분리)</label>
+                                  <label className="text-xs font-bold text-gray-800">태그 직접 입력 (쉼표/공백 구분시 자동 변환)</label>
                                   <input
                                     type="text"
                                     placeholder="예: 홈카페, 소풍, 저녁식사"
@@ -1179,38 +1621,182 @@ export default function App() {
                                 </div>
 
                                 <div className="flex flex-col gap-2">
-                                  <span className="text-xs font-bold text-gray-500">기존 보관함 태그 터치 선택</span>
-                                  <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto pr-1">
-                                    {Object.keys(tagsMap).map((tag) => {
-                                      const currentTagsList = formTagsString.split(/[,,| ]+/).map(t => t.trim().replace(/^#/, '')).filter(Boolean);
-                                      const isSelected = currentTagsList.includes(tag);
-                                      return (
-                                        <button
-                                          key={tag}
-                                          type="button"
-                                          onClick={() => {
-                                            if (isSelected) {
-                                              const updated = currentTagsList.filter(t => t !== tag);
-                                              setFormTagsString(updated.join(', '));
-                                            } else {
-                                              const updated = [...currentTagsList, tag];
-                                              setFormTagsString(updated.join(', '));
-                                            }
-                                          }}
-                                          className={`py-1.5 px-3 rounded-lg text-xs font-bold transition-colors border ${
-                                            isSelected
-                                              ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
-                                              : 'bg-stone-50 border-stone-200 text-stone-600 hover:border-emerald-300'
-                                          }`}
-                                        >
-                                          #{tag}
-                                        </button>
-                                      );
-                                    })}
-                                    {Object.keys(tagsMap).length === 0 && (
-                                      <p className="text-xs text-gray-400 py-1 text-center w-full">사용 중인 고유 태그가 없습니다.</p>
+                                  <div className="flex justify-between items-center select-none mb-1">
+                                    <span className="text-xs font-bold text-gray-800">계층형 태그 선택</span>
+                                  </div>
+                                  <div className="border border-stone-250 bg-stone-50/50 rounded-2xl px-0 py-3 max-h-72 overflow-y-auto flex flex-col gap-1 text-xs select-none">
+                                    {(() => {
+                                      const sortedRows = getSortedTagRows(tagsHierarchy);
+                                      const visibleRows = sortedRows.filter(row => {
+                                        const parts = row.fullPath.split('/');
+                                        for (let i = 1; i < parts.length; i++) {
+                                          const parentPath = parts.slice(0, i).join('/');
+                                          if (collapsedTags.includes(parentPath)) {
+                                            return false;
+                                          }
+                                        }
+                                        return true;
+                                      });
+
+                                      return visibleRows.map((row, idx) => {
+                                        const currentTagsList = formTagsString
+                                          .split(/[,,| ]+/)
+                                          .map(t => t.trim().replace(/^#/, ''))
+                                          .filter(Boolean);
+                                        const isSelected = currentTagsList.includes(row.fullPath);
+                                        const count = countDiariesForTag(row.fullPath, entries);
+                                        const hasChildren = tagsHierarchy.some(path => path.startsWith(row.fullPath + '/'));
+                                        const isCollapsed = collapsedTags.includes(row.fullPath);
+
+                                        // Divider lines as requested:
+                                        // Thick line on Transition to a new Major category (row.level === 0)
+                                        const showThickDivider = idx > 0 && row.level === 0;
+
+                                        return (
+                                          <div key={row.fullPath} className="flex flex-col w-full">
+                                            {showThickDivider && (
+                                              <div className="border-t-2 border-stone-300/80 my-2 w-full flex-shrink-0" />
+                                            )}
+                                            
+                                            <div
+                                              className={`w-full py-1 px-0.5 rounded-lg flex items-center justify-between transition-all select-none group ${
+                                                isSelected 
+                                                  ? 'bg-[#599e52]/10 hover:bg-[#599e52]/15' 
+                                                  : 'hover:bg-stone-100/70'
+                                              }`}
+                                            >
+                                              <div className="flex items-center gap-1 min-w-0 flex-1">
+                                                {/* Fold / Unfold Toggle Arrow */}
+                                                {hasChildren ? (
+                                                  <button
+                                                    type="button"
+                                                    onClick={(e) => {
+                                                      e.stopPropagation();
+                                                      setCollapsedTags(prev =>
+                                                        prev.includes(row.fullPath)
+                                                          ? prev.filter(p => p !== row.fullPath)
+                                                          : [...prev, row.fullPath]
+                                                      );
+                                                    }}
+                                                    className="p-1 text-stone-400 hover:text-indigo-600 hover:bg-stone-200 rounded-md flex-shrink-0 mr-0.5 cursor-pointer transition-colors"
+                                                    title={isCollapsed ? '하위 열기' : '하위 접기'}
+                                                  >
+                                                    {isCollapsed ? (
+                                                      <ChevronRight className="w-3.5 h-3.5" />
+                                                    ) : (
+                                                      <ChevronDown className="w-3.5 h-3.5" />
+                                                    )}
+                                                  </button>
+                                                ) : (
+                                                  <div className="w-[22px] h-[22px] mr-1 flex-shrink-0" />
+                                                )}
+
+                                                {/* Selection Checkbox & Text Button */}
+                                                <button
+                                                  type="button"
+                                                  onClick={() => {
+                                                    let updated: string[];
+                                                    if (isSelected) {
+                                                      updated = currentTagsList.filter(t => t !== row.fullPath);
+                                                    } else {
+                                                      updated = [...currentTagsList, row.fullPath];
+                                                    }
+                                                    setFormTagsString(updated.join(', '));
+                                                  }}
+                                                  className="flex items-center gap-1.5 cursor-pointer text-left focus:outline-none min-w-0 flex-1"
+                                                >
+                                                  <div className={`w-3.5 h-3.5 rounded-md border flex items-center justify-center transition-all flex-shrink-0 ${
+                                                    isSelected 
+                                                      ? 'bg-[#599e52] border-[#599e52] text-white shadow-3xs' 
+                                                      : 'border-stone-300 bg-white group-hover:border-stone-400'
+                                                  }`}>
+                                                    {isSelected && <Check className="w-2.5 h-2.5 stroke-[3px]" />}
+                                                  </div>
+
+                                                  <span className="flex items-center flex-wrap min-w-0 leading-tight">
+                                                    <span className={`mr-0.5 select-none font-bold ${
+                                                      row.level === 0 ? 'text-stone-400 text-xs' :
+                                                      row.level === 1 ? 'text-blue-300 text-[11px]' :
+                                                      row.level === 2 ? 'text-sky-300 text-[10px]' :
+                                                      'text-stone-300 text-[9px]'
+                                                    }`}>#</span>
+                                                    {row.fullPath.split('/').map((part, pIdx, splitArr) => {
+                                                      // Tier level colors and font weight definitions:
+                                                      // Level 1 ('문화/일상' -> index 0): 굵은 검은색
+                                                      // Level 2 ('독서/영화' -> index 1): 굵은 파란색
+                                                      // Level 3 ('소설/비소설' -> index 2): 가는 파란색
+                                                      // Level 4 ('가와바타야스나리/과학/역사' -> index 3): 가는 회색
+                                                      let partStyle = '';
+                                                      if (pIdx === 0) {
+                                                        partStyle = 'text-stone-900 font-extrabold text-xs sm:text-[13px]';
+                                                      } else if (pIdx === 1) {
+                                                        partStyle = 'text-blue-600 font-bold text-[12px] sm:text-xs';
+                                                      } else if (pIdx === 2) {
+                                                        partStyle = 'text-sky-500 font-medium text-[11px] sm:text-xs';
+                                                      } else {
+                                                        partStyle = 'text-stone-400 font-normal text-[11px]';
+                                                      }
+
+                                                      return (
+                                                        <span key={pIdx} className="flex items-center shrink-0">
+                                                          <span className={partStyle}>{part}</span>
+                                                          {pIdx < splitArr.length - 1 && (
+                                                            <span className="text-stone-300 font-normal px-0.5 text-[10px]">/</span>
+                                                          )}
+                                                        </span>
+                                                      );
+                                                    })}
+                                                    <span className="text-[10px] text-stone-400 font-extrabold ml-1.5 shrink-0">({count})</span>
+                                                  </span>
+                                                </button>
+                                              </div>
+                                            </div>
+                                          </div>
+                                        );
+                                      });
+                                    })()}
+
+                                    {tagsHierarchy.length === 0 && (
+                                      <p className="text-xs text-gray-400 py-3 text-center w-full">보관함에 등록된 태그가 없습니다.</p>
                                     )}
                                   </div>
+
+                                  {/* Other tags if any */}
+                                  {Object.keys(tagsMap).some(t => !tagsHierarchy.includes(t)) && (
+                                    <div className="flex flex-col gap-1 mt-1.5 select-none">
+                                      <span className="text-xs font-bold text-gray-800">분류 외 기타 개별 태그</span>
+                                      <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto pt-1">
+                                        {Object.keys(tagsMap)
+                                          .filter(t => !tagsHierarchy.includes(t))
+                                          .map(tag => {
+                                            const currentTagsList = formTagsString.split(/[,,| ]+/).map(t => t.trim().replace(/^#/, '')).filter(Boolean);
+                                            const isSelected = currentTagsList.includes(tag);
+                                            return (
+                                              <button
+                                                key={tag}
+                                                type="button"
+                                                onClick={() => {
+                                                  let updated: string[];
+                                                  if (isSelected) {
+                                                    updated = currentTagsList.filter(t => t !== tag);
+                                                  } else {
+                                                    updated = [...currentTagsList, tag];
+                                                  }
+                                                  setFormTagsString(updated.join(', '));
+                                                }}
+                                                className={`py-1 px-2.5 rounded-lg text-xs font-extrabold transition-all border cursor-pointer ${
+                                                  isSelected
+                                                    ? 'bg-indigo-50 border-indigo-300 text-indigo-800'
+                                                    : 'bg-stone-105 border-stone-200 text-stone-500 hover:border-emerald-300'
+                                                }`}
+                                              >
+                                                #{tag}
+                                              </button>
+                                            );
+                                          })}
+                                      </div>
+                                    </div>
+                                  )}
                                 </div>
 
                                 <button
@@ -1796,14 +2382,24 @@ export default function App() {
                               setSelectedTag(isSelected ? null : tag);
                               setIsSheetExpanded(false); // 가라앉음
                             }}
-                            className={`p-1 px-2.5 rounded-full text-[11px] font-semibold flex items-center gap-1 transition-all border ${
+                            className={`p-1 px-2.5 rounded-full text-[11px] font-extrabold flex items-center gap-1.5 transition-all border cursor-pointer ${
                               isSelected 
                                 ? 'bg-[#599e52] border-[#599e52] text-white' 
-                                : 'bg-stone-50 border-stone-200 text-gray-600 hover:border-[#599e52]'
+                                : 'bg-stone-50 border-stone-200 text-gray-650 hover:border-[#599e52]'
                             }`}
                           >
-                            <span>#{tag}</span>
-                            <span className={`text-[9px] px-1 rounded-full ${
+                            <span className="flex items-center">
+                              <span className={isSelected ? 'text-white/80 mr-0.5' : 'text-[#3b8534] mr-0.5'}>#</span>
+                              {tag.split('/').map((part, idx, arr) => (
+                                <span key={idx} className="flex items-center">
+                                  {part}
+                                  {idx < arr.length - 1 && (
+                                    <span className={`mx-0.5 text-[9px] font-black ${isSelected ? 'text-white/50' : 'text-[#9ad194]'}`}>›</span>
+                                  )}
+                                </span>
+                              ))}
+                            </span>
+                            <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-full ${
                               isSelected ? 'bg-white/30 text-white' : 'bg-green-100 text-[#599e52]'
                             }`}>
                               {val}
@@ -1993,6 +2589,388 @@ export default function App() {
                   일기 계속 쓰기
                 </button>
               </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Tag Hierarchy Management Modal Overlay */}
+      <AnimatePresence>
+        {isTagManageModalOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs select-none"
+            onClick={() => {
+              setIsTagManageModalOpen(false);
+              setTagHierarchyEditingPath(null);
+              setTagHierarchyInputName('');
+              setTagHierarchyInputParent('');
+              setPlainTagToInsert(null);
+              setPlainTagInsertParent('');
+              setPlainTagToRename(null);
+              setPlainTagRenameInput('');
+            }}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              transition={{ duration: 0.18 }}
+              className="bg-white border border-stone-200 shadow-2xl rounded-3xl w-full max-w-sm p-5 text-left flex flex-col gap-3.5 animate-in fade-in zoom-in-95 duration-200"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between pb-1.5 border-b border-stone-150">
+                <div>
+                  <h3 className="text-sm font-extrabold text-gray-800 flex items-center gap-1.5">
+                    <span>🔧 태그 계층 및 보관함 설정</span>
+                  </h3>
+                  <p className="text-[10px] text-gray-400 font-bold mt-0.5">최대 4단계 계층 생성, 이름수정, 위치이동 지원</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsTagManageModalOpen(false);
+                    setTagHierarchyEditingPath(null);
+                    setTagHierarchyInputName('');
+                    setTagHierarchyInputParent('');
+                    setPlainTagToInsert(null);
+                    setPlainTagInsertParent('');
+                    setPlainTagToRename(null);
+                    setPlainTagRenameInput('');
+                  }}
+                  className="text-gray-400 hover:text-gray-600 p-1 cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Add / Edit Form block */}
+              <div className="bg-stone-50 border border-stone-150 p-3 rounded-2xl flex flex-col gap-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-black text-indigo-700">
+                    {tagHierarchyEditingPath === null ? '✨ 새로운 계층 태그 추가' : '📝 선택 태그 이동 및 수정 편집'}
+                  </span>
+                  {tagHierarchyEditingPath !== null && (
+                    <span className="text-[10px] font-extrabold text-[#599e52] px-1.5 py-0.5 bg-emerald-50 rounded-md truncate max-w-[150px]">
+                      편집중: {tagHierarchyInputName}
+                    </span>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[9px] font-extrabold text-stone-500">태그명 (슬래시 제외)</label>
+                    <input
+                      type="text"
+                      placeholder="예: 독서, 소설, 카페"
+                      value={tagHierarchyInputName}
+                      onChange={(e) => setTagHierarchyInputName(e.target.value.replace(/\//g, ''))}
+                      className="w-full bg-white border border-stone-200 rounded-lg px-2.5 py-1.5 text-xs text-gray-800 focus:outline-none focus:ring-1 focus:ring-[#599e52] font-bold"
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[9px] font-extrabold text-stone-500">부모 계층 지정</label>
+                    <select
+                      value={tagHierarchyInputParent}
+                      onChange={(e) => setTagHierarchyInputParent(e.target.value)}
+                      className="w-full bg-white border border-stone-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[#599e52] font-bold cursor-pointer"
+                    >
+                      <option value="">[최상위 태그]</option>
+                      {getSortedTagRows(tagsHierarchy)
+                        .filter(row => {
+                          const parts = row.fullPath.split('/');
+                          if (parts.length >= 4) return false;
+                          if (tagHierarchyEditingPath) {
+                            return row.fullPath !== tagHierarchyEditingPath && !row.fullPath.startsWith(tagHierarchyEditingPath + '/');
+                          }
+                          return true;
+                        })
+                        .map(row => (
+                          <option key={row.fullPath} value={row.fullPath}>
+                            {row.fullPath.split('/').join(' › ')}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="flex gap-1.5 mt-1.5">
+                  <button
+                    type="button"
+                    onClick={handleSaveTagHierarchy}
+                    className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold py-2 rounded-lg transition cursor-pointer text-center"
+                  >
+                    {tagHierarchyEditingPath === null ? '태그 추가' : '수정/이동 적용'}
+                  </button>
+                  {tagHierarchyEditingPath !== null && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTagHierarchyEditingPath(null);
+                        setTagHierarchyInputName('');
+                        setTagHierarchyInputParent('');
+                      }}
+                      className="px-2.5 bg-stone-200 hover:bg-stone-300 text-stone-700 text-[11px] font-bold py-2 rounded-lg transition cursor-pointer"
+                    >
+                      취소
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Tag Trees and loose tags list view */}
+              <div className="flex flex-col gap-3 flex-1 max-h-72 overflow-y-auto pr-1 select-none">
+                {/* 1. 계층 태그 트리 */}
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-[10px] font-extrabold text-indigo-700">현재 보관함 등록 태그 트리 ({tagsHierarchy.length})</span>
+                  <div className="flex flex-col gap-1 border border-stone-250 bg-stone-50/50 rounded-2xl px-0 py-3 select-none">
+                    {(() => {
+                      const sortedRows = getSortedTagRows(tagsHierarchy);
+                      return sortedRows.map((row, idx) => {
+                        const count = countDiariesForTag(row.fullPath, entries);
+                        const isRowEditing = tagHierarchyEditingPath === row.fullPath;
+                        const showThickDivider = idx > 0 && row.level === 0;
+
+                        return (
+                          <div key={row.fullPath} className="flex flex-col w-full">
+                            {showThickDivider && (
+                              <div className="border-t-2 border-stone-300/80 my-2 w-full flex-shrink-0" />
+                            )}
+                            
+                            <div
+                              className={`w-full py-1 px-3 rounded-lg flex items-center justify-between transition-all select-none group ${
+                                isRowEditing 
+                                  ? 'bg-amber-50/85 border-y border-amber-300 text-amber-950 font-black' 
+                                  : 'hover:bg-stone-100/70'
+                              }`}
+                            >
+                              <div className="flex items-center gap-1 min-w-0 flex-1">
+                                <span className={`mr-1 select-none font-bold ${
+                                  row.level === 0 ? 'text-stone-400 text-xs' :
+                                  row.level === 1 ? 'text-blue-300 text-[11px]' :
+                                  row.level === 2 ? 'text-sky-300 text-[10px]' :
+                                  'text-stone-300 text-[9px]'
+                                }`}>#</span>
+                                
+                                <span className="flex items-center flex-wrap min-w-0 leading-tight">
+                                  {row.fullPath.split('/').map((part, pIdx, splitArr) => {
+                                    let partStyle = '';
+                                    if (pIdx === 0) {
+                                      partStyle = 'text-stone-900 font-extrabold text-xs sm:text-[13px]';
+                                    } else if (pIdx === 1) {
+                                      partStyle = 'text-blue-600 font-bold text-[12px] sm:text-xs';
+                                    } else if (pIdx === 2) {
+                                      partStyle = 'text-sky-500 font-medium text-[11px] sm:text-xs';
+                                    } else {
+                                      partStyle = 'text-stone-400 font-normal text-[11px]';
+                                    }
+
+                                    return (
+                                      <span key={pIdx} className="flex items-center shrink-0 font-bold">
+                                        <span className={partStyle}>{part}</span>
+                                        {pIdx < splitArr.length - 1 && (
+                                          <span className="text-stone-300 font-normal px-0.5 text-[10px]">/</span>
+                                        )}
+                                      </span>
+                                    );
+                                  })}
+                                  <span className="text-[10px] text-stone-400 font-extrabold ml-1.5 shrink-0">({count})</span>
+                                </span>
+                              </div>
+
+                              <div className="flex items-center gap-1 shrink-0 ml-2">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setTagHierarchyEditingPath(row.fullPath);
+                                    setTagHierarchyInputName(row.name);
+                                    setTagHierarchyInputParent(row.parentPath);
+                                  }}
+                                  className="p-1 text-stone-400 hover:text-indigo-600 rounded-md hover:bg-stone-200 transition-colors cursor-pointer"
+                                  title="이름 수정 및 계층 이동"
+                                >
+                                  <Pencil className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteTagHierarchy(row.fullPath)}
+                                  className="p-1 text-stone-400 hover:text-rose-600 rounded-md hover:bg-stone-200 transition-colors cursor-pointer"
+                                  title="태그 삭제"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      });
+                    })()}
+
+                    {tagsHierarchy.length === 0 && (
+                      <p className="text-xs text-stone-400 py-6 text-center">등록된 보관함 태그가 없습니다.</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* 2. 분류 외 기타 개별 태그 관리 영역 */}
+                <div className="flex flex-col gap-1.5 border-t border-stone-200 pt-3">
+                  <span className="text-[10px] font-extrabold text-stone-500 font-bold">분류 외 기타 개별 태그 ({Object.keys(tagsMap).filter(t => !tagsHierarchy.includes(t)).length})</span>
+                  
+                  {/* 인라인 제어 폼 */}
+                  {plainTagToInsert && (
+                    <div className="bg-emerald-50/70 border border-emerald-150 p-2.5 rounded-xl flex flex-col gap-2 mb-1.5">
+                      <div className="flex justify-between items-center">
+                        <span className="text-[10px] font-bold text-emerald-800 font-bold">
+                          '#{plainTagToInsert}' 태그를 계층 구조에 편입
+                        </span>
+                        <button 
+                          type="button" 
+                          onClick={() => { setPlainTagToInsert(null); setPlainTagInsertParent(''); }}
+                          className="text-stone-400 hover:text-stone-600 font-extrabold text-xs"
+                        >
+                          X
+                        </button>
+                      </div>
+                      <div className="flex gap-1.5 items-center">
+                        <select
+                          value={plainTagInsertParent}
+                          onChange={(e) => setPlainTagInsertParent(e.target.value)}
+                          className="flex-1 bg-white border border-stone-200 rounded-lg px-2 py-1 text-[11px] font-bold cursor-pointer"
+                        >
+                          <option value="">[최상위 태그로 직접 등록]</option>
+                          {getSortedTagRows(tagsHierarchy)
+                            .filter(row => row.fullPath.split('/').length < 4)
+                            .map(row => (
+                              <option key={row.fullPath} value={row.fullPath}>
+                                {row.fullPath.split('/').join(' › ')}
+                              </option>
+                            ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => handleInsertPlainTagToHierarchy(plainTagToInsert, plainTagInsertParent)}
+                          className="bg-[#599e52] hover:bg-[#4ba843] text-white text-[10px] font-black px-2.5 py-1.5 rounded-md shrink-0 cursor-pointer"
+                        >
+                          편입 완료
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {plainTagToRename && (
+                    <div className="bg-blue-50/70 border border-blue-150 p-2.5 rounded-xl flex flex-col gap-2 mb-1.5">
+                      <div className="flex justify-between items-center">
+                        <span className="text-[10px] font-bold text-blue-800 font-bold">
+                          '#{plainTagToRename}' 태그 이름 변경
+                        </span>
+                        <button 
+                          type="button" 
+                          onClick={() => { setPlainTagToRename(null); setPlainTagRenameInput(''); }}
+                          className="text-stone-400 hover:text-stone-600 font-extrabold text-xs"
+                        >
+                          X
+                        </button>
+                      </div>
+                      <div className="flex gap-1.5 items-center">
+                        <input
+                          type="text"
+                          value={plainTagRenameInput}
+                          onChange={(e) => setPlainTagRenameInput(e.target.value.replace(/\//g, ''))}
+                          placeholder="새 이름 입력"
+                          className="flex-1 bg-white border border-stone-200 rounded-lg px-2 py-1 text-[11px] font-bold"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleRenamePlainTag(plainTagToRename, plainTagRenameInput)}
+                          className="bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-black px-2.5 py-1.5 rounded-md shrink-0 cursor-pointer"
+                        >
+                          변경 적용
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex flex-col gap-1 border border-stone-150 bg-stone-50/30 p-1.5 rounded-2xl max-h-48 overflow-y-auto">
+                    {Object.keys(tagsMap)
+                      .filter(t => !tagsHierarchy.includes(t))
+                      .map((tag) => {
+                        const count = tagsMap[tag] || 0;
+                        return (
+                          <div
+                            key={tag}
+                            className="bg-white border-none rounded-lg p-1.5 py-1 px-2.5 flex items-center justify-between text-stone-700 transition-colors"
+                          >
+                            <div className="flex items-center gap-1.5 min-w-0 max-w-[50%]">
+                              <Hash className="w-3.5 h-3.5 text-stone-400 shrink-0" />
+                              <span className="text-xs font-bold text-stone-600 truncate">{tag}</span>
+                              <span className="text-[10px] font-extrabold text-stone-400 shrink-0">({count})</span>
+                            </div>
+
+                            <div className="flex items-center gap-1 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setPlainTagToInsert(tag);
+                                  setPlainTagInsertParent('');
+                                  setPlainTagToRename(null);
+                                }}
+                                className="px-1.5 py-0.5 text-[9px] font-extrabold text-[#599e52] hover:bg-emerald-50 rounded-md border border-stone-105 hover:border-emerald-200 transition-colors cursor-pointer"
+                                title="계층 구조 안으로 편입하기"
+                              >
+                                계층 편입
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setPlainTagToRename(tag);
+                                  setPlainTagRenameInput(tag);
+                                  setPlainTagToInsert(null);
+                                }}
+                                className="p-0.5 text-stone-400 hover:text-blue-600 rounded-md hover:bg-stone-50 transition-colors cursor-pointer"
+                                title="이름 수정"
+                              >
+                                <Pencil className="w-3 h-3" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeletePlainTag(tag)}
+                                className="p-0.5 text-stone-400 hover:text-rose-600 rounded-md hover:bg-stone-50 transition-colors cursor-pointer"
+                                title="태그 삭제"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+
+                    {Object.keys(tagsMap).filter(t => !tagsHierarchy.includes(t)).length === 0 && (
+                      <p className="text-[10px] text-stone-400 py-4 text-center">분류 외 개별 태그가 없습니다.</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Close Button at bottom */}
+              <button
+                type="button"
+                onClick={() => {
+                  setIsTagManageModalOpen(false);
+                  setTagHierarchyEditingPath(null);
+                  setTagHierarchyInputName('');
+                  setTagHierarchyInputParent('');
+                  setPlainTagToInsert(null);
+                  setPlainTagInsertParent('');
+                  setPlainTagToRename(null);
+                  setPlainTagRenameInput('');
+                }}
+                className="w-full bg-[#599e52] hover:bg-[#4ba843] active:bg-[#3f9038] text-white text-xs font-black py-2.5 rounded-xl text-center shadow-xs transition cursor-pointer"
+              >
+                닫기
+              </button>
             </motion.div>
           </motion.div>
         )}

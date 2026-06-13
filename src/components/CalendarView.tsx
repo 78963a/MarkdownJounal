@@ -713,9 +713,17 @@ export default function CalendarView({
                             entry.tags.map(tag => (
                               <span 
                                 key={tag} 
-                                className="text-[11px] font-bold text-[#599e52] bg-[#f0f9f0] px-2 py-1 rounded-full text-left"
+                                className="text-[10px] sm:text-[11px] font-extrabold text-[#599e52] bg-[#f0f9f0] px-2.5 py-1 rounded-full text-left flex items-center gap-0.5 border border-emerald-100"
                               >
-                                #{tag}
+                                <span className="text-[#3a8433]">#</span>
+                                {tag.split('/').map((part, idx, arr) => (
+                                  <span key={idx} className="flex items-center">
+                                    {part}
+                                    {idx < arr.length - 1 && (
+                                      <span className="mx-0.5 text-[9px] font-black text-[#9ad194]">›</span>
+                                    )}
+                                  </span>
+                                ))}
                               </span>
                             ))
                           ) : (
