@@ -1266,25 +1266,25 @@ export default function App() {
             {activeTab === 'save' && (
               <div className="flex flex-col gap-6 font-sans" id="exporter-sections">
                 <div className="bg-white rounded-3xl border border-[#e2e8f0] p-6 shadow-sm flex flex-col gap-6">
-                  <h3 className="text-sm font-bold text-gray-800 flex items-center gap-1.5 pb-2.5 border-b border-gray-100">
+                  <h3 className="text-base md:text-lg font-black text-gray-900 flex items-center gap-1.5 pb-2.5 border-b border-gray-100">
                     <Download className="w-5 h-5 text-[#599e52]" />
                     <span>내 일기 마크다운(Markdown) 문서로 백업 저장</span>
                   </h3>
                   
-                  <p className="text-xs text-gray-500 leading-relaxed -mt-3">
+                  <p className="text-sm text-gray-700 leading-relaxed -mt-3">
                     브라우저 내부 IndexedDB 영구 저장소에 저장된 일기 데이터들을 하루 단위의 개별 마크다운 파일로 패킹하여 다운로드 받을 수 있습니다.
                     독서록, 업무 기록과 같은 카테고리가 다른 파일은 별도로 나뉘어 압축됩니다.
                   </p>
 
-                  <div className="bg-stone-50 border border-[#e2e8f0] p-4 rounded-2xl flex flex-col gap-2.5">
-                    <h4 className="text-xs font-bold text-gray-700">백업 마크다운 저장 사양 안내 (기기 기반 동적 매핑)</h4>
-                    <div className="text-[11px] text-gray-500 font-medium grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div className="bg-stone-50 border border-[#e2e8f0] p-5 rounded-2xl flex flex-col gap-3">
+                    <h4 className="text-sm font-extrabold text-gray-900">백업 마크다운 저장 사양 안내 (기기 기반 동적 매핑)</h4>
+                    <ul className="text-sm text-gray-700 space-y-1.5 font-medium">
                       {categories.map((cat, idx) => {
                         const catName = cat.name === '일반 일기' ? '일상' : cat.name;
                         const slug = cat.slug !== undefined ? cat.slug : getCategorySlug(catName);
                         
                         let filenameFormat = 'YYYY-MM-DD.md';
-                        let badgeColor = 'text-indigo-600 bg-indigo-50 border-indigo-100';
+                        let textColor = 'text-indigo-600';
                         
                         if (slug) {
                           if (slug.startsWith('_') || slug.startsWith('-')) {
@@ -1294,91 +1294,86 @@ export default function App() {
                           }
                           
                           if (slug === 'book') {
-                            badgeColor = 'text-emerald-700 bg-emerald-50 border-emerald-100';
+                            textColor = 'text-emerald-600';
                           } else if (slug === 'work-log') {
-                            badgeColor = 'text-amber-700 bg-amber-50 border-amber-100';
+                            textColor = 'text-amber-600';
                           } else if (slug === 'study-log') {
-                            badgeColor = 'text-cyan-700 bg-cyan-50 border-cyan-100';
+                            textColor = 'text-cyan-600';
                           } else {
-                            badgeColor = 'text-purple-700 bg-purple-50 border-purple-100';
+                            textColor = 'text-purple-600';
                           }
                         }
 
                         return (
-                          <div key={cat.name || idx} className="flex flex-wrap items-center justify-between gap-1.5 bg-white px-3 py-2 rounded-xl border border-stone-200/50">
-                            <div className="flex items-center gap-1.5">
-                              <span className="font-extrabold text-gray-800 text-[11px]">{catName}</span>
-                              {slug ? (
-                                <span className="text-[9px] text-gray-400 font-mono font-bold bg-neutral-100 px-1 py-0.5 rounded">slug: {slug}</span>
-                              ) : (
-                                <span className="text-[9px] text-gray-450 font-mono font-bold bg-slate-100 px-1 py-0.5 rounded">기본</span>
-                              )}
-                            </div>
-                            <code className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold border ${badgeColor}`}>
+                          <li key={cat.name || idx} className="flex flex-wrap items-center gap-2">
+                            <span className="text-gray-400">•</span>
+                            <span className="font-extrabold text-gray-900">{catName === '일상' ? '일상(기본)' : catName}</span>
+                            <span className="text-gray-300">──</span>
+                            <code className={`font-mono font-black ${textColor}`}>
                               {filenameFormat}
                             </code>
-                          </div>
+                          </li>
                         );
                       })}
-                    </div>
+                    </ul>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
                     {/* All Backups block */}
-                    <div className="border border-stone-200/60 rounded-2xl p-4 flex flex-col justify-between" id="save-all-container">
+                    <div className="border border-stone-200/60 rounded-2xl p-5 flex flex-col justify-between" id="save-all-container">
                       <div>
-                        <h4 className="text-xs font-black text-gray-800 mb-2.5 flex items-center gap-1.5">
+                        <h4 className="text-base font-extrabold text-gray-900 mb-2.5 flex items-center gap-1.5">
                           <span className="w-2 h-2 rounded-full bg-[#599e52]"></span>
                           <span>방법 1. 전체 일기 내려받기</span>
                         </h4>
-                        <p className="text-[11px] text-gray-550 leading-relaxed mb-4">
-                          현재 기기 보관함의 전체 일기(<strong className="text-[#599e52]">{entries.length}개</strong>)를 한 번에 패킹해서 ZIP 마크다운 압축 파일로 일괄 소장합니다.
+                        <p className="text-sm text-gray-700 leading-relaxed mb-4">
+                          현재 기기 보관함의 전체 일기(<strong className="text-[#599e52] font-black">{entries.length}개</strong>)를 한 번에 패킹해서 ZIP 마크다운 압축 파일로 일괄 소장합니다.
                         </p>
                       </div>
                       <div>
                         <button
                           type="button"
                           onClick={handleDownloadAllZip}
-                          className="w-full flex items-center justify-center gap-2 py-3 bg-[#599e52] hover:bg-[#4ca843] active:bg-[#3b8334] text-white text-xs font-bold rounded-xl shadow-xs transition cursor-pointer"
+                          className="w-full flex items-center justify-center gap-2 py-3.5 bg-[#599e52] hover:bg-[#4ca843] active:bg-[#3b8334] text-white text-sm font-bold rounded-xl shadow-sm transition cursor-pointer"
                           id="btn-action-backup-zip"
                         >
-                          <Download className="w-3.5 h-3.5" />
+                          <Download className="w-4 h-4" />
                           <span>전체 일기 ZIP 다운로드</span>
                         </button>
-                        <p className="text-center text-[10px] text-gray-400 mt-2 font-medium">
+                        <p className="text-center text-xs text-gray-500 mt-2 font-medium">
                           기기 복구 보관에 안전하고 유용합니다.
                         </p>
                       </div>
                     </div>
 
                     {/* Period selection block */}
-                    <div className="border border-stone-200/60 rounded-2xl p-4 flex flex-col justify-between" id="save-range-container">
+                    <div className="border border-stone-200/60 rounded-2xl p-5 flex flex-col justify-between" id="save-range-container">
                       <div>
-                        <h4 className="text-xs font-black text-gray-800 mb-2.5 flex items-center gap-1.5">
+                        <h4 className="text-base font-extrabold text-gray-900 mb-2.5 flex items-center gap-1.5">
                           <span className="w-2 h-2 rounded-full bg-[#7c3aed]"></span>
                           <span>방법 2. 특정 기간 일기만 내려받기</span>
                         </h4>
-                        <p className="text-[11px] text-gray-550 leading-relaxed mb-4">
+                        <p className="text-sm text-gray-700 leading-relaxed mb-4">
                           원하는 기간 범위(시작일 ~ 종료일)를 직접 설정하여, 지정한 기간 내에 작성된 마크다운 일기만 부분 추출하여 내려받습니다.
                         </p>
                         
-                        <div className="grid grid-cols-2 gap-2 mb-4">
+                        <div className="grid grid-cols-2 gap-3 mb-4">
                           <div className="flex flex-col gap-1">
-                            <label className="text-[10px] font-bold text-gray-400 select-none">시작일</label>
+                            <label className="text-xs font-bold text-gray-750 select-none">시작일</label>
                             <input
                               type="date"
                               value={rangeStartDate}
                               onChange={(e) => setRangeStartDate(e.target.value)}
-                              className="w-full bg-stone-50 border border-stone-200 rounded-xl px-2.5 py-1.5 text-xs font-mono font-bold text-gray-700 outline-none focus:border-[#7c3aed] transition-all"
+                              className="w-full bg-stone-50 border border-stone-200 rounded-xl px-2.5 py-1.5 text-sm font-mono font-bold text-gray-805 outline-none focus:border-[#7c3aed] transition-all"
                             />
                           </div>
                           <div className="flex flex-col gap-1">
-                            <label className="text-[10px] font-bold text-gray-400 select-none">종료일</label>
+                            <label className="text-xs font-bold text-gray-750 select-none">종료일</label>
                             <input
                               type="date"
                               value={rangeEndDate}
                               onChange={(e) => setRangeEndDate(e.target.value)}
-                              className="w-full bg-stone-50 border border-stone-200 rounded-xl px-2.5 py-1.5 text-xs font-mono font-bold text-gray-700 outline-none focus:border-[#7c3aed] transition-all"
+                              className="w-full bg-stone-50 border border-stone-200 rounded-xl px-2.5 py-1.5 text-sm font-mono font-bold text-gray-805 outline-none focus:border-[#7c3aed] transition-all"
                             />
                           </div>
                         </div>
@@ -1387,13 +1382,13 @@ export default function App() {
                         <button
                           type="button"
                           onClick={handleDownloadRangeZip}
-                          className="w-full flex items-center justify-center gap-2 py-3 bg-[#7c3aed] hover:bg-[#6d28d9] active:bg-[#5b21b6] text-white text-xs font-bold rounded-xl shadow-xs transition cursor-pointer"
+                          className="w-full flex items-center justify-center gap-2 py-3.5 bg-[#7c3aed] hover:bg-[#6d28d9] active:bg-[#5b21b6] text-white text-sm font-bold rounded-xl shadow-sm transition cursor-pointer"
                           id="btn-action-range-zip"
                         >
-                          <Download className="w-3.5 h-3.5" />
+                          <Download className="w-4 h-4" />
                           <span>선택 기간 ZIP 다운로드</span>
                         </button>
-                        <p className="text-center text-[10px] text-gray-400 mt-2 font-medium">
+                        <p className="text-center text-xs text-gray-500 mt-2 font-medium">
                           원하는 며칠 동안의 기록을 간편하게 별도 보관합니다.
                         </p>
                       </div>
@@ -1404,7 +1399,7 @@ export default function App() {
                 {/* 2. DOWNLOAD CHRONOLOGICAL LOGS TABLE */}
                 <div className="bg-white rounded-3xl border border-[#e2e8f0] p-6 shadow-sm overflow-hidden flex flex-col gap-4" id="backup-logs-card">
                   <div className="flex items-center justify-between pb-2.5 border-b border-gray-100">
-                    <h3 className="text-sm font-bold text-gray-800 flex items-center gap-1.5">
+                    <h3 className="text-base md:text-lg font-black text-gray-900 flex items-center gap-1.5">
                       <History className="w-5 h-5 text-indigo-500" />
                       <span>최근 일기 백업 및 다운로드 이력</span>
                     </h3>
@@ -1416,7 +1411,7 @@ export default function App() {
                             setDownloadHistory([]);
                           }
                         }}
-                        className="text-[10px] text-gray-400 hover:text-rose-500 transition-colors font-bold border border-gray-205 hover:border-rose-100 rounded-lg px-2.5 py-1 bg-gray-50/50 hover:bg-rose-50/25 cursor-pointer"
+                        className="text-xs text-gray-550 hover:text-rose-600 transition-colors font-extrabold border border-gray-300 hover:border-rose-200 rounded-lg px-3 py-1 bg-gray-50/70 hover:bg-rose-50/40 cursor-pointer"
                         id="history-clear-btn"
                       >
                         이력 초기화
@@ -1425,18 +1420,18 @@ export default function App() {
                   </div>
 
                   {downloadHistory.length === 0 ? (
-                    <div className="text-center py-8 text-gray-400 text-xs flex flex-col items-center justify-center gap-1 bg-stone-50/50 rounded-2xl border border-dashed border-stone-200" id="empty-history-indicator">
-                      <Clock className="w-7 h-7 text-stone-300 mb-1" />
-                      <p className="font-extrabold text-[#78716c]">백업 또는 다운로드 이력이 아직 존재하지 않습니다.</p>
-                      <p className="text-[10.5px] text-stone-400/80 leading-relaxed font-semibold">
+                    <div className="text-center py-8 text-gray-500 text-sm flex flex-col items-center justify-center gap-1.5 bg-stone-50/50 rounded-2xl border border-dashed border-stone-200" id="empty-history-indicator">
+                      <Clock className="w-7 h-7 text-stone-400 mb-1" />
+                      <p className="font-extrabold text-gray-800">백업 또는 다운로드 이력이 아직 존재하지 않습니다.</p>
+                      <p className="text-xs text-gray-500 leading-relaxed font-semibold">
                         전체/기간 압축 다운로드 혹은 개별 일기 카드의 폴더 내려받기 단추를 가동하여 백업을 개시해보세요.
                       </p>
                     </div>
                   ) : (
                     <div className="overflow-x-auto rounded-2xl border border-stone-200/70" id="history-logs-table-wrapper">
-                      <table className="min-w-full table-auto divide-y divide-stone-200 text-left text-xs bg-transparent" id="backup-logs-table">
+                      <table className="min-w-full table-auto divide-y divide-stone-200 text-left text-sm bg-transparent" id="backup-logs-table">
                         <thead>
-                          <tr className="bg-stone-50 text-[11px] font-black text-gray-500 tracking-wider">
+                          <tr className="bg-stone-50 text-xs font-bold text-gray-700 tracking-wider">
                             <th className="py-2.5 px-3 whitespace-nowrap">다운로드 일시</th>
                             <th className="py-2.5 px-3 whitespace-nowrap">유형</th>
                             <th className="py-2.5 px-3 whitespace-nowrap">대상 백업 일정</th>
@@ -1444,7 +1439,7 @@ export default function App() {
                             <th className="py-2.5 px-3 whitespace-nowrap max-w-[150px] truncate">파일명 / 크기</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-stone-100 text-gray-700 font-semibold" id="backup-logs-table-body">
+                        <tbody className="divide-y divide-stone-100 text-gray-800 font-semibold" id="backup-logs-table-body">
                           {downloadHistory.map((item) => {
                             const itemDate = new Date(item.timestamp);
                             const y = itemDate.getFullYear();
@@ -1456,15 +1451,15 @@ export default function App() {
 
                             const typeBadge =
                               item.type === 'all' ? (
-                                <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-100/60">
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-100/60">
                                   전체 백업
                                 </span>
                               ) : item.type === 'range' ? (
-                                <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-100/60">
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-100/60">
                                   기간 백업
                                 </span>
                               ) : (
-                                <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-stone-100 text-stone-700 border border-stone-200/60">
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-bold bg-stone-100 text-stone-700 border border-stone-200/60">
                                   개별 일기
                                 </span>
                               );
@@ -1478,19 +1473,19 @@ export default function App() {
 
                             return (
                               <tr key={item.id} className="hover:bg-stone-50/70 transition-colors" id={`log-row-${item.id}`}>
-                                <td className="py-3 px-3 whitespace-nowrap text-[11px] font-mono text-gray-500 font-bold">
+                                <td className="py-3 px-3 whitespace-nowrap text-xs font-mono text-gray-600 font-bold">
                                   {formattedTime}
                                 </td>
                                 <td className="py-3 px-3 whitespace-nowrap">
                                   {typeBadge}
                                 </td>
-                                <td className="py-3 px-3 whitespace-nowrap text-[11px] font-bold text-gray-800">
+                                <td className="py-3 px-3 whitespace-nowrap text-xs font-bold text-gray-900">
                                   {periodLabel}
                                 </td>
-                                <td className="py-3 px-3 whitespace-nowrap text-center font-bold text-slate-800">
+                                <td className="py-3 px-3 whitespace-nowrap text-center font-bold text-gray-900">
                                   {item.entryCount}개
                                 </td>
-                                <td className="py-3 px-3 max-w-[155px] truncate text-[11px] font-mono text-gray-400 hover:text-gray-600 transition-colors" title={item.fileName}>
+                                <td className="py-3 px-3 max-w-[155px] truncate text-xs font-mono text-gray-500 hover:text-gray-700 transition-colors" title={item.fileName}>
                                   {item.fileName}
                                 </td>
                               </tr>
@@ -1502,12 +1497,12 @@ export default function App() {
                   )}
                 </div>
 
-                <div className="bg-yellow-50 border border-yellow-200 p-5 rounded-3xl" id="about-privacy">
-                  <div className="flex gap-2 text-yellow-800">
+                <div className="bg-yellow-50 border border-yellow-250 p-5 rounded-3xl" id="about-privacy">
+                  <div className="flex gap-2 text-yellow-900">
                     <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5" />
                     <div>
-                      <h4 className="text-xs font-bold">오프라인 오버드라이브 개인정보 보호 정책</h4>
-                      <p className="text-[11px] text-yellow-700 leading-relaxed mt-1">
+                      <h4 className="text-sm font-extrabold text-yellow-900">오프라인 오버드라이브 개인정보 보호 정책</h4>
+                      <p className="text-sm text-yellow-800 leading-relaxed mt-1">
                         작성하시는 소중한 다이어리 텍스트는 외부 서버에 절대 전송되지 않고 본인의 브라우저 내부 IndexedDB 영구 저장 영역에 보관됩니다. 인터넷 연결이 원활하지 않는 비행기, 터널 안 오프라인에서도 완전하게 작동합니다.
                       </p>
                     </div>
