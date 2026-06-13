@@ -772,7 +772,7 @@ export default function CalendarView({
                     id="btn-calendar-quick-write"
                   >
                     <Plus className="w-4 h-4" />
-                    <span>새 마크다운 일기 쓰기</span>
+                    <span>새 일기 쓰기</span>
                   </button>
                 </>
               ) : (

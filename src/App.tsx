@@ -1517,7 +1517,7 @@ export default function App() {
             }}
             exit={{ y: 200, opacity: 0 }}
             transition={{ type: 'spring', damping: 25, stiffness: 220 }}
-            className="fixed bottom-[74px] left-0 right-0 z-40 max-w-2xl mx-auto px-4 select-none"
+            className="fixed bottom-[60px] left-0 right-0 z-40 max-w-2xl mx-auto px-4 select-none"
             id="search-bottom-sheet"
           >
             <div className="bg-white rounded-3xl border border-[#e2e8f0] shadow-[0_-8px_30px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col">
@@ -1536,7 +1536,7 @@ export default function App() {
                     {!(selectedCategory || selectedTag || searchQuery) ? (
                       <span className="text-xs font-bold text-gray-400 flex items-center gap-1.5">
                         <Search className="w-3.5 h-3.5 text-gray-400" />
-                        <span>전체 일기 목록 조회 중 (필터 미지정)</span>
+                        <span>모든 일기(필터 미지정)</span>
                       </span>
                     ) : (
                       <div className="flex items-center gap-1.5 flex-wrap">
