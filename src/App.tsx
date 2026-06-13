@@ -28,7 +28,8 @@ import {
   Home,
   Pencil,
   Check,
-  History
+  History,
+  ChevronDown
 } from 'lucide-react';
 import { DiaryEntry, ActiveTab, CategorySpec, DownloadHistory } from './types';
 import { getAllDiaries, addDiary, updateDiary, deleteDiary, seedInitialData } from './db/indexedDb';
@@ -40,6 +41,14 @@ import TimeWheelPicker from './components/TimeWheelPicker';
 import DateSelectionPicker from './components/DateSelectionPicker';
 import { highlightHTML } from './utils/highlighter';
 import { motion, AnimatePresence } from 'motion/react';
+
+const PALETTE_COLORS = [
+  'bg-[#599e52]', 'bg-emerald-500', 'bg-teal-500', 'bg-cyan-500', 
+  'bg-sky-500', 'bg-blue-500', 'bg-indigo-500', 'bg-violet-500', 
+  'bg-purple-500', 'bg-[#c026d3]', 'bg-fuchsia-500', 'bg-pink-500', 
+  'bg-rose-500', 'bg-red-500', 'bg-orange-500', 'bg-amber-500', 
+  'bg-yellow-500', 'bg-lime-500', 'bg-stone-500', 'bg-slate-500'
+];
 
 export default function App() {
   // DB Entries
@@ -107,6 +116,9 @@ export default function App() {
             if (c.name === '일반 일기') {
               return { ...c, name: '일상', slug: '' };
             }
+            if (c.name === '일상' && c.color === 'bg-indigo-500') {
+              return { ...c, color: 'bg-[#599e52]' };
+            }
             return c;
           });
         }
@@ -115,7 +127,7 @@ export default function App() {
       }
     }
     return [
-      { name: '일상', slug: '', color: 'bg-indigo-500' },
+      { name: '일상', slug: '', color: 'bg-[#599e52]' },
       { name: '독서록', slug: '_book', color: 'bg-emerald-500' },
       { name: '업무 기록', slug: '_work_log', color: 'bg-amber-500' },
     ];
@@ -125,6 +137,9 @@ export default function App() {
   const [editingCategorySpec, setEditingCategorySpec] = useState<CategorySpec | null>(null);
   const [categoryInputName, setCategoryInputName] = useState('');
   const [categoryInputSlug, setCategoryInputSlug] = useState('');
+  const [categoryInputColor, setCategoryInputColor] = useState('bg-indigo-500');
+
+  const isEditingDefault = !!(editingCategorySpec && categories[0] && editingCategorySpec.name === categories[0].name);
 
   // Persist categories list on change
   useEffect(() => {
@@ -136,10 +151,12 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
+  const [visibleCount, setVisibleCount] = useState(20);
 
   // Reset expanded entries on tab or filter changes
   useEffect(() => {
     setExpandedEntries({});
+    setVisibleCount(20);
   }, [activeTab, selectedCategory, selectedTag, searchQuery]);
 
   // Search bottom sheet states
@@ -340,7 +357,7 @@ export default function App() {
     }
   };
 
-  const handleRenameCategory = async (oldName: string, newName: string, newSlug: string) => {
+  const handleRenameCategory = async (oldName: string, newName: string, newSlug: string, finalColor: string) => {
     const finalNewName = newName.trim();
     const finalNewSlug = newSlug.trim().replace(/[^a-zA-Z0-9_\-]/g, '');
 
@@ -358,7 +375,7 @@ export default function App() {
 
     const updated = categories.map(c => {
       if (c.name === oldName) {
-        return { ...c, name: finalNewName, slug: finalNewSlug };
+        return { ...c, name: finalNewName, slug: finalNewSlug, color: finalColor };
       }
       return c;
     });
@@ -396,7 +413,7 @@ export default function App() {
 
   const handleSaveOrAddCategory = async () => {
     const finalName = categoryInputName.trim();
-    const finalSlug = categoryInputSlug.trim().replace(/[^a-zA-Z0-9_\-]/g, '');
+    const finalSlug = isEditingDefault ? '' : categoryInputSlug.trim().replace(/[^a-zA-Z0-9_\-]/g, '');
 
     if (!finalName) {
       showToast('카테고리 이름을 입력해주세요.', 'error');
@@ -405,7 +422,7 @@ export default function App() {
 
     if (editingCategorySpec) {
       // Edit mode
-      await handleRenameCategory(editingCategorySpec.name, finalName, finalSlug);
+      await handleRenameCategory(editingCategorySpec.name, finalName, finalSlug, categoryInputColor);
       setEditingCategorySpec(null);
     } else {
       // Add mode
@@ -415,13 +432,10 @@ export default function App() {
         return;
       }
 
-      const colors = ['bg-[#599e52]', 'bg-rose-500', 'bg-emerald-500', 'bg-amber-500', 'bg-sky-500', 'bg-violet-500', 'bg-fuchsia-500'];
-      const randomColor = colors[Math.floor(Math.random() * colors.length)];
-
       const newCat: CategorySpec = {
         name: finalName,
         slug: finalSlug,
-        color: randomColor
+        color: categoryInputColor
       };
 
       setCategories(prev => [...prev, newCat]);
@@ -431,12 +445,14 @@ export default function App() {
 
     setCategoryInputName('');
     setCategoryInputSlug('');
+    setCategoryInputColor('bg-indigo-500');
   };
 
   const handleCancelEditCategory = () => {
     setEditingCategorySpec(null);
     setCategoryInputName('');
     setCategoryInputSlug('');
+    setCategoryInputColor('bg-indigo-500');
   };
 
   // Delete handler
@@ -643,10 +659,11 @@ export default function App() {
             
             {/* 1. FEED VIEW TABLE (Chronological List view requested in Attachment 1) */}
             {activeTab === 'feed' && (
-              <div className="flex flex-col gap-1.5" id="view-feed-section">
+              <div className="flex flex-col gap-[5px]" id="view-feed-section">
                 
                 {filteredEntries.length > 0 ? (
-                  filteredEntries.map((entry) => {
+                  <>
+                    {filteredEntries.slice(0, visibleCount).map((entry) => {
                     // split date to parts
                     const dateParts = entry.date.split('-');
                     const yearNum = dateParts[0];
@@ -833,8 +850,22 @@ export default function App() {
                         </motion.div>
                       </motion.div>
                     );
-                  })
-                ) : (
+                  })}
+                  {filteredEntries.length > visibleCount && (
+                    <div className="flex justify-center mt-3 mb-1" id="load-more-container">
+                      <button
+                        type="button"
+                        onClick={() => setVisibleCount(prev => prev + 20)}
+                        className="px-5 py-2 bg-white hover:bg-stone-50 border border-stone-200 text-gray-755 text-xs font-extrabold rounded-full shadow-xs transition hover:scale-102 active:scale-98 flex items-center gap-1 cursor-pointer select-none"
+                        id="btn-load-more"
+                      >
+                        <span>+20</span>
+                        <ChevronDown className="w-3.5 h-3.5 text-gray-400" />
+                      </button>
+                    </div>
+                  )}
+                </>
+              ) : (
                   <div className="py-20 text-center bg-white rounded-3xl border border-[#e2e8f0] p-8 text-gray-500 shadow-sm" id="empty-feed">
                     <FileText className="w-12 h-12 text-gray-300 mx-auto mb-3" />
                     <p className="text-lg font-bold text-gray-700">작성된 일기가 없습니다!</p>
@@ -863,6 +894,7 @@ export default function App() {
                 onDeleteEntry={handleDeleteEntry}
                 onDownloadSingleEntryAndGroup={handleDownloadSingleEntryAndGroup}
                 searchQuery={searchQuery}
+                categories={categories}
               />
             )}
 
@@ -959,9 +991,14 @@ export default function App() {
                                           }}
                                           className="flex-1 flex flex-col text-left cursor-pointer"
                                         >
-                                          <div className="flex items-center gap-1.5">
+                                          <div className="flex items-center gap-1.5 flex-wrap">
                                             <span className={`w-2.5 h-2.5 rounded-full ${cat.color || 'bg-indigo-500'}`} />
                                             <span className="text-sm font-extrabold text-gray-800">{cat.name}</span>
+                                            {isDefault && (
+                                              <span className="text-[9px] font-black text-[#599e52] bg-emerald-50 px-1 py-0.5 rounded border border-emerald-150 flex-shrink-0 select-none">
+                                                기본 카테고리
+                                              </span>
+                                            )}
                                             {isSelected && <Check className="w-3.5 h-3.5 text-[#599e52] stroke-[3.5px]" />}
                                           </div>
                                           <span className="text-[10.5px] text-gray-400 font-mono mt-0.5">
@@ -977,6 +1014,7 @@ export default function App() {
                                               setEditingCategorySpec(cat);
                                               setCategoryInputName(cat.name);
                                               setCategoryInputSlug(cat.slug);
+                                              setCategoryInputColor(cat.color || 'bg-indigo-500');
                                             }}
                                             className="p-1.5 text-gray-400 hover:text-[#599e52] hover:bg-emerald-50 rounded-lg transition-colors"
                                             title="이름 및 파일 식별자 변경"
@@ -1033,27 +1071,59 @@ export default function App() {
                                         placeholder="파일 접미사 식별자 (예: _book_review)"
                                         value={categoryInputSlug}
                                         onChange={(e) => setCategoryInputSlug(e.target.value)}
-                                        className="w-full bg-white border border-stone-200 rounded-lg px-2.5 py-1.5 text-base outline-none focus:ring-1.5 focus:ring-[#599e52]/40 font-mono text-gray-700"
+                                        disabled={isEditingDefault}
+                                        className={`w-full border border-stone-200 rounded-lg px-2.5 py-1.5 text-base outline-none focus:ring-1.5 focus:ring-[#599e52]/40 font-mono text-gray-700 ${
+                                          isEditingDefault ? 'opacity-65 cursor-not-allowed bg-stone-100' : 'bg-white'
+                                        }`}
                                       />
                                       
                                       {/* Live file preview text */}
                                       <div className="text-[10px] text-gray-400 font-mono scale-95 origin-left select-none leading-relaxed">
-                                        백업 파일명: {formDate}
-                                        <span className="text-[#599e52] font-extrabold font-mono">
-                                          {categoryInputSlug 
-                                            ? (categoryInputSlug.startsWith('_') || categoryInputSlug.startsWith('-') 
-                                                ? categoryInputSlug 
-                                                : '_' + categoryInputSlug) 
-                                            : ''}
-                                        </span>
-                                        .md
+                                        {isEditingDefault ? (
+                                          <span className="text-amber-600 font-extrabold">※ 기본 카테고리의 백업 파일 식별자는 변경할 수 없습니다.</span>
+                                        ) : (
+                                          <>
+                                            백업 파일명: {formDate}
+                                            <span className="text-[#599e52] font-extrabold font-mono">
+                                              {categoryInputSlug 
+                                                ? (categoryInputSlug.startsWith('_') || categoryInputSlug.startsWith('-') 
+                                                    ? categoryInputSlug 
+                                                    : '_' + categoryInputSlug) 
+                                                : ''}
+                                            </span>
+                                            .md
+                                          </>
+                                        )}
+                                      </div>
+                                    </div>
+
+                                    {/* Predefined 20 Color Palette Picker */}
+                                    <div className="flex flex-col gap-1.5 mt-0.5 select-none" id="palette-picker-container">
+                                      <span className="text-[11px] font-bold text-gray-500">카테고리 표시 색상 선택</span>
+                                      <div className="grid grid-cols-10 gap-1 bg-white border border-stone-200 p-1.5 rounded-xl">
+                                        {PALETTE_COLORS.map((color) => {
+                                          const isSelected = categoryInputColor === color;
+                                          return (
+                                            <button
+                                              key={color}
+                                              type="button"
+                                              onClick={() => setCategoryInputColor(color)}
+                                              className={`w-5.5 h-5.5 rounded-full ${color} cursor-pointer hover:scale-110 active:scale-95 transition-transform flex items-center justify-center relative shadow-2xs`}
+                                              title="색상 선택"
+                                            >
+                                              {isSelected && (
+                                                <Check className="w-3.5 h-3.5 text-white stroke-[4px]" />
+                                              )}
+                                            </button>
+                                          );
+                                        })}
                                       </div>
                                     </div>
                                     
                                     <button
                                       type="button"
                                       onClick={handleSaveOrAddCategory}
-                                      className="w-full bg-[#599e52] hover:bg-[#4ba843] text-white text-xs font-bold py-1.5 rounded-lg transition-colors shadow-xs"
+                                      className="w-full bg-[#599e52] hover:bg-[#4ba843] text-white text-xs font-bold py-1.5 rounded-lg transition-colors shadow-xs mt-1"
                                     >
                                       {editingCategorySpec ? '수정 완료' : '등록 및 분류추가'}
                                     </button>

@@ -115,33 +115,6 @@ export async function seedInitialData(): Promise<void> {
   // Seed with some nice default samples mirroring attachment screens
   const samples: Omit<DiaryEntry, 'id'>[] = [
     {
-      date: '2026-06-11',
-      time: '오전 11:15',
-      category: '일상',
-      title: '거실 골판지 상자 정리',
-      content: '<p>거실 종이상자 하나 정리했다. 버린건 거의 없어도 그래도 뭐라도 해야지.</p><p>일기 백업방식네 대해서 제미나이와 상담하니까 마크다운 파일 생성을 추천해준다. 기왕하는거 일기장 앱도 하나 만들까 싶다.</p><p>부엌 거실 복도 청소기로 한번씩 미니까 깨끗하다...</p>',
-      tags: ['일상', '청소', '아이디어'],
-      createdAt: Date.now() - 1000 * 60 * 30
-    },
-    {
-      date: '2026-06-10',
-      time: '오후 9:15',
-      category: '일상',
-      title: '준수방 청소와 저녁 식사',
-      content: '<p>준수랑 70여분에 걸쳐서 준수방 청소했다. 준수가 처음에 100개 치우면 깨끗해질 거 같다고 해서 같이 100개 치워봤는데 역시나 택도 없었다. 더이상은 무리일거 같아서 100개까지만 치웠다.</p><p>저녁은 소고기구이와 닭고기무조림.</p><p>배터지게 먹었다....</p>',
-      tags: ['육아', '집안일', '식단'],
-      createdAt: Date.now() - 1000 * 60 * 60 * 14
-    },
-    {
-      date: '2026-06-10',
-      time: '오전 8:54',
-      category: '일상',
-      title: '체중계 불신',
-      content: '<p>몸무게 56.20. 흠...(체중계를 불신하기 시작)</p>',
-      tags: ['건강', '몸무게'],
-      createdAt: Date.now() - 1000 * 60 * 60 * 24
-    },
-    {
       date: '2026-06-10',
       time: '오전 6:23',
       category: '일상',

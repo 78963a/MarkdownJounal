@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Edit3, Plus, ArrowLeftRight, Clock, FileDown, Trash2 } from 'lucide-react';
-import { DiaryEntry } from '../types';
+import { DiaryEntry, CategorySpec } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { highlightHTML } from '../utils/highlighter';
 
@@ -11,6 +11,7 @@ interface CalendarViewProps {
   onDeleteEntry?: (id: number) => void;
   onDownloadSingleEntryAndGroup?: (date: string, category: string) => void;
   searchQuery?: string;
+  categories?: CategorySpec[];
 }
 
 export default function CalendarView({ 
@@ -19,7 +20,8 @@ export default function CalendarView({
   onWriteForDate, 
   onDeleteEntry, 
   onDownloadSingleEntryAndGroup,
-  searchQuery = ''
+  searchQuery = '',
+  categories = []
 }: CalendarViewProps) {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDateStr, setSelectedDateStr] = useState<string>(() => {
@@ -576,7 +578,7 @@ export default function CalendarView({
 
         <AnimatePresence mode="popLayout">
           {activeEntries.length > 0 ? (
-            <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-[5px]">
               {activeEntries.map((entry) => {
                 const dateParts = entry.date.split('-');
                 const yearNum = dateParts[0];
@@ -634,9 +636,11 @@ export default function CalendarView({
                                 }
                               }}
                               className={`px-2.5 py-0.5 text-[10px] font-extrabold text-white rounded-lg select-none uppercase tracking-wide shadow-xs cursor-pointer active:scale-95 hover:brightness-95 transition-all ${
-                                entry.category === '독서록' ? 'bg-emerald-600' :
-                                entry.category === '업무 기록' ? 'bg-amber-500' :
-                                entry.category === '일상' || entry.category === '일반 일기' ? 'bg-[#599e52]' : 'bg-[#7c3aed]'
+                                (() => {
+                                  const entryCat = entry.category === '일반 일기' ? '일상' : entry.category;
+                                  const spec = categories.find(c => c.name === entryCat);
+                                  return spec ? spec.color : 'bg-indigo-500';
+                                })()
                               }`}
                               title={`${entry.category === '일반 일기' ? '일상' : entry.category} 카테고리 필터링`}
                             >
