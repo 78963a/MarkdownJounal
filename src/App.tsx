@@ -463,6 +463,13 @@ export default function App() {
       return;
     }
 
+    if (plainTagToRename !== null) {
+      await handleRenamePlainTag(plainTagToRename, name);
+      setTagHierarchyInputName('');
+      setTagHierarchyInputParent('');
+      return;
+    }
+
     const parent = tagHierarchyInputParent;
     const newPath = parent ? `${parent}/${name}` : name;
 
@@ -470,6 +477,13 @@ export default function App() {
     const level = newPath.split('/').length;
     if (level > 4) {
       showToast('태그 계층은 최대 4단계까지만 설정 가능합니다.', 'error');
+      return;
+    }
+
+    if (plainTagToInsert !== null) {
+      await handleInsertPlainTagToHierarchy(plainTagToInsert, parent, name);
+      setTagHierarchyInputName('');
+      setTagHierarchyInputParent('');
       return;
     }
 
@@ -670,8 +684,13 @@ export default function App() {
     showToast(`기타 태그가 완전히 삭제되었습니다. (일기 ${affectedDiaryCount}개 반영)`, 'success');
   };
 
-  const handleInsertPlainTagToHierarchy = async (tagName: string, parentPath: string) => {
-    const targetPath = parentPath ? `${parentPath}/${tagName}` : tagName;
+  const handleInsertPlainTagToHierarchy = async (tagName: string, parentPath: string, newName?: string) => {
+    const finalName = (newName || tagName).trim().replace(/\//g, '');
+    if (!finalName) {
+      showToast('태그 이름을 입력해주세요.', 'error');
+      return;
+    }
+    const targetPath = parentPath ? `${parentPath}/${finalName}` : finalName;
 
     if (targetPath.split('/').length > 4) {
       showToast('태그 계층은 최대 4단계까지만 가능합니다.', 'error');
@@ -686,7 +705,8 @@ export default function App() {
     setTagsHierarchy([...tagsHierarchy, targetPath]);
 
     let affectedDiaryCount = 0;
-    if (parentPath) {
+    const hasChange = parentPath || finalName !== tagName;
+    if (hasChange) {
       const updatedEntries = await Promise.all(
         entries.map(async (entry) => {
           if (entry.tags && Array.isArray(entry.tags)) {
@@ -2650,9 +2670,15 @@ export default function App() {
               <div className="bg-stone-50 border border-stone-150 p-3 rounded-2xl flex flex-col gap-2.5">
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] font-black text-indigo-700">
-                    {tagHierarchyEditingPath === null ? '✨ 새로운 계층 태그 추가' : '📝 선택 태그 이동 및 수정 편집'}
+                    {tagHierarchyEditingPath !== null
+                      ? '📝 선택 태그 이동 및 수정 편집'
+                      : plainTagToInsert !== null
+                      ? `📥 '#${plainTagToInsert}' 계층 구조 편입`
+                      : plainTagToRename !== null
+                      ? `📝 '#${plainTagToRename}' 태그 이름 수정`
+                      : '✨ 새로운 계층 태그 추가'}
                   </span>
-                  {tagHierarchyEditingPath !== null && (
+                  {(tagHierarchyEditingPath !== null || plainTagToInsert !== null || plainTagToRename !== null) && (
                     <span className="text-[10px] font-extrabold text-[#599e52] px-1.5 py-0.5 bg-emerald-50 rounded-md truncate max-w-[150px]">
                       편집중: {tagHierarchyInputName}
                     </span>
@@ -2673,27 +2699,33 @@ export default function App() {
 
                   <div className="flex flex-col gap-1">
                     <label className="text-[9px] font-extrabold text-stone-500">부모 계층 지정</label>
-                    <select
-                      value={tagHierarchyInputParent}
-                      onChange={(e) => setTagHierarchyInputParent(e.target.value)}
-                      className="w-full bg-white border border-stone-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[#599e52] font-bold cursor-pointer"
-                    >
-                      <option value="">[최상위 태그]</option>
-                      {getSortedTagRows(tagsHierarchy)
-                        .filter(row => {
-                          const parts = row.fullPath.split('/');
-                          if (parts.length >= 4) return false;
-                          if (tagHierarchyEditingPath) {
-                            return row.fullPath !== tagHierarchyEditingPath && !row.fullPath.startsWith(tagHierarchyEditingPath + '/');
-                          }
-                          return true;
-                        })
-                        .map(row => (
-                          <option key={row.fullPath} value={row.fullPath}>
-                            {row.fullPath.split('/').join(' › ')}
-                          </option>
-                        ))}
-                    </select>
+                    {plainTagToRename !== null ? (
+                      <div className="w-full bg-stone-100/80 border border-stone-200/60 rounded-lg px-2 py-1.5 text-[9px] text-stone-500 font-bold leading-tight select-none">
+                        개별 태그는 부모 불가
+                      </div>
+                    ) : (
+                      <select
+                        value={tagHierarchyInputParent}
+                        onChange={(e) => setTagHierarchyInputParent(e.target.value)}
+                        className="w-full bg-white border border-stone-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[#599e52] font-bold cursor-pointer"
+                      >
+                        <option value="">[최상위 태그]</option>
+                        {getSortedTagRows(tagsHierarchy)
+                          .filter(row => {
+                            const parts = row.fullPath.split('/');
+                            if (parts.length >= 4) return false;
+                            if (tagHierarchyEditingPath) {
+                              return row.fullPath !== tagHierarchyEditingPath && !row.fullPath.startsWith(tagHierarchyEditingPath + '/');
+                            }
+                            return true;
+                          })
+                          .map(row => (
+                            <option key={row.fullPath} value={row.fullPath}>
+                              {row.fullPath.split('/').join(' › ')}
+                            </option>
+                          ))}
+                      </select>
+                    )}
                   </div>
                 </div>
 
@@ -2703,13 +2735,21 @@ export default function App() {
                     onClick={handleSaveTagHierarchy}
                     className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold py-2 rounded-lg transition cursor-pointer text-center"
                   >
-                    {tagHierarchyEditingPath === null ? '태그 추가' : '수정/이동 적용'}
+                    {tagHierarchyEditingPath !== null
+                      ? '수정/이동 적용'
+                      : plainTagToInsert !== null
+                      ? '편입 완료'
+                      : plainTagToRename !== null
+                      ? '이름 변경 적용'
+                      : '태그 추가'}
                   </button>
-                  {tagHierarchyEditingPath !== null && (
+                  {(tagHierarchyEditingPath !== null || plainTagToInsert !== null || plainTagToRename !== null) && (
                     <button
                       type="button"
                       onClick={() => {
                         setTagHierarchyEditingPath(null);
+                        setPlainTagToInsert(null);
+                        setPlainTagToRename(null);
                         setTagHierarchyInputName('');
                         setTagHierarchyInputParent('');
                       }}
@@ -2788,6 +2828,8 @@ export default function App() {
                                     setTagHierarchyEditingPath(row.fullPath);
                                     setTagHierarchyInputName(row.name);
                                     setTagHierarchyInputParent(row.parentPath);
+                                    setPlainTagToInsert(null);
+                                    setPlainTagToRename(null);
                                   }}
                                   className="p-1 text-stone-400 hover:text-indigo-600 rounded-md hover:bg-stone-200 transition-colors cursor-pointer"
                                   title="이름 수정 및 계층 이동"
@@ -2818,90 +2860,21 @@ export default function App() {
                 {/* 2. 분류 외 기타 개별 태그 관리 영역 */}
                 <div className="flex flex-col gap-1.5 border-t border-stone-200 pt-3">
                   <span className="text-[10px] font-extrabold text-stone-500 font-bold">분류 외 기타 개별 태그 ({Object.keys(tagsMap).filter(t => !tagsHierarchy.includes(t)).length})</span>
-                  
-                  {/* 인라인 제어 폼 */}
-                  {plainTagToInsert && (
-                    <div className="bg-emerald-50/70 border border-emerald-150 p-2.5 rounded-xl flex flex-col gap-2 mb-1.5">
-                      <div className="flex justify-between items-center">
-                        <span className="text-[10px] font-bold text-emerald-800 font-bold">
-                          '#{plainTagToInsert}' 태그를 계층 구조에 편입
-                        </span>
-                        <button 
-                          type="button" 
-                          onClick={() => { setPlainTagToInsert(null); setPlainTagInsertParent(''); }}
-                          className="text-stone-400 hover:text-stone-600 font-extrabold text-xs"
-                        >
-                          X
-                        </button>
-                      </div>
-                      <div className="flex gap-1.5 items-center">
-                        <select
-                          value={plainTagInsertParent}
-                          onChange={(e) => setPlainTagInsertParent(e.target.value)}
-                          className="flex-1 bg-white border border-stone-200 rounded-lg px-2 py-1 text-[11px] font-bold cursor-pointer"
-                        >
-                          <option value="">[최상위 태그로 직접 등록]</option>
-                          {getSortedTagRows(tagsHierarchy)
-                            .filter(row => row.fullPath.split('/').length < 4)
-                            .map(row => (
-                              <option key={row.fullPath} value={row.fullPath}>
-                                {row.fullPath.split('/').join(' › ')}
-                              </option>
-                            ))}
-                        </select>
-                        <button
-                          type="button"
-                          onClick={() => handleInsertPlainTagToHierarchy(plainTagToInsert, plainTagInsertParent)}
-                          className="bg-[#599e52] hover:bg-[#4ba843] text-white text-[10px] font-black px-2.5 py-1.5 rounded-md shrink-0 cursor-pointer"
-                        >
-                          편입 완료
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {plainTagToRename && (
-                    <div className="bg-blue-50/70 border border-blue-150 p-2.5 rounded-xl flex flex-col gap-2 mb-1.5">
-                      <div className="flex justify-between items-center">
-                        <span className="text-[10px] font-bold text-blue-800 font-bold">
-                          '#{plainTagToRename}' 태그 이름 변경
-                        </span>
-                        <button 
-                          type="button" 
-                          onClick={() => { setPlainTagToRename(null); setPlainTagRenameInput(''); }}
-                          className="text-stone-400 hover:text-stone-600 font-extrabold text-xs"
-                        >
-                          X
-                        </button>
-                      </div>
-                      <div className="flex gap-1.5 items-center">
-                        <input
-                          type="text"
-                          value={plainTagRenameInput}
-                          onChange={(e) => setPlainTagRenameInput(e.target.value.replace(/\//g, ''))}
-                          placeholder="새 이름 입력"
-                          className="flex-1 bg-white border border-stone-200 rounded-lg px-2 py-1 text-[11px] font-bold"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => handleRenamePlainTag(plainTagToRename, plainTagRenameInput)}
-                          className="bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-black px-2.5 py-1.5 rounded-md shrink-0 cursor-pointer"
-                        >
-                          변경 적용
-                        </button>
-                      </div>
-                    </div>
-                  )}
 
                   <div className="flex flex-col gap-1 border border-stone-150 bg-stone-50/30 p-1.5 rounded-2xl max-h-48 overflow-y-auto">
                     {Object.keys(tagsMap)
                       .filter(t => !tagsHierarchy.includes(t))
                       .map((tag) => {
                         const count = tagsMap[tag] || 0;
+                        const isTagEditingOrInserting = plainTagToInsert === tag || plainTagToRename === tag;
                         return (
                           <div
                             key={tag}
-                            className="bg-white border-none rounded-lg p-1.5 py-1 px-2.5 flex items-center justify-between text-stone-700 transition-colors"
+                            className={`rounded-lg p-1.5 py-1 px-2.5 flex items-center justify-between transition-colors ${
+                              isTagEditingOrInserting
+                                ? 'bg-amber-50/80 border border-amber-200 text-amber-950 font-black'
+                                : 'bg-white border-none text-stone-700'
+                            }`}
                           >
                             <div className="flex items-center gap-1.5 min-w-0 max-w-[50%]">
                               <Hash className="w-3.5 h-3.5 text-stone-400 shrink-0" />
@@ -2914,8 +2887,10 @@ export default function App() {
                                 type="button"
                                 onClick={() => {
                                   setPlainTagToInsert(tag);
-                                  setPlainTagInsertParent('');
                                   setPlainTagToRename(null);
+                                  setTagHierarchyEditingPath(null);
+                                  setTagHierarchyInputName(tag);
+                                  setTagHierarchyInputParent('');
                                 }}
                                 className="px-1.5 py-0.5 text-[9px] font-extrabold text-[#599e52] hover:bg-emerald-50 rounded-md border border-stone-105 hover:border-emerald-200 transition-colors cursor-pointer"
                                 title="계층 구조 안으로 편입하기"
@@ -2926,21 +2901,23 @@ export default function App() {
                                 type="button"
                                 onClick={() => {
                                   setPlainTagToRename(tag);
-                                  setPlainTagRenameInput(tag);
                                   setPlainTagToInsert(null);
+                                  setTagHierarchyEditingPath(null);
+                                  setTagHierarchyInputName(tag);
+                                  setTagHierarchyInputParent('');
                                 }}
-                                className="p-0.5 text-stone-400 hover:text-blue-600 rounded-md hover:bg-stone-50 transition-colors cursor-pointer"
+                                className="p-0.5 text-stone-400 hover:text-blue-600 rounded-md hover:bg-stone-100 transition-colors cursor-pointer"
                                 title="이름 수정"
                               >
-                                <Pencil className="w-3 h-3" />
+                                <Pencil className="w-3.5 h-3.5" />
                               </button>
                               <button
                                 type="button"
                                 onClick={() => handleDeletePlainTag(tag)}
-                                className="p-0.5 text-stone-400 hover:text-rose-600 rounded-md hover:bg-stone-50 transition-colors cursor-pointer"
+                                className="p-0.5 text-stone-400 hover:text-rose-600 rounded-md hover:bg-stone-100 transition-colors cursor-pointer"
                                 title="태그 삭제"
                               >
-                                <Trash2 className="w-3 h-3" />
+                                <Trash2 className="w-3.5 h-3.5" />
                               </button>
                             </div>
                           </div>
