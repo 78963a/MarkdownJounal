@@ -1268,7 +1268,7 @@ export default function App() {
                 <div className="bg-white rounded-3xl border border-[#e2e8f0] p-6 shadow-sm flex flex-col gap-6">
                   <h3 className="text-base md:text-lg font-black text-gray-900 flex items-center gap-1.5 pb-2.5 border-b border-gray-100">
                     <Download className="w-5 h-5 text-[#599e52]" />
-                    <span>내 일기 마크다운(Markdown) 문서로 백업 저장</span>
+                    <span>내 일기 마크다운(Markdown) 문서로 내려받기</span>
                   </h3>
                   
                   <p className="text-sm text-gray-700 leading-relaxed -mt-3">
@@ -1276,8 +1276,8 @@ export default function App() {
                     독서록, 업무 기록과 같은 카테고리가 다른 파일은 별도로 나뉘어 압축됩니다.
                   </p>
 
-                  <div className="bg-stone-50 border border-[#e2e8f0] p-5 rounded-2xl flex flex-col gap-3">
-                    <h4 className="text-sm font-extrabold text-gray-900">백업 마크다운 저장 사양 안내 (기기 기반 동적 매핑)</h4>
+                  <div className="bg-white flex flex-col gap-2">
+                    <h4 className="text-sm font-extrabold text-gray-900"> 파일명 </h4>
                     <ul className="text-sm text-gray-700 space-y-1.5 font-medium">
                       {categories.map((cat, idx) => {
                         const catName = cat.name === '일반 일기' ? '일상' : cat.name;
@@ -1308,7 +1308,7 @@ export default function App() {
                           <li key={cat.name || idx} className="flex flex-wrap items-center gap-2">
                             <span className="text-gray-400">•</span>
                             <span className="font-extrabold text-gray-900">{catName === '일상' ? '일상(기본)' : catName}</span>
-                            <span className="text-gray-300">──</span>
+                            <span className="text-gray-300">;</span>
                             <code className={`font-mono font-black ${textColor}`}>
                               {filenameFormat}
                             </code>
@@ -1338,11 +1338,8 @@ export default function App() {
                           id="btn-action-backup-zip"
                         >
                           <Download className="w-4 h-4" />
-                          <span>전체 일기 ZIP 다운로드</span>
+                          <span>전체 일기 ZIP 내려받기</span>
                         </button>
-                        <p className="text-center text-xs text-gray-500 mt-2 font-medium">
-                          기기 복구 보관에 안전하고 유용합니다.
-                        </p>
                       </div>
                     </div>
 
@@ -1386,11 +1383,8 @@ export default function App() {
                           id="btn-action-range-zip"
                         >
                           <Download className="w-4 h-4" />
-                          <span>선택 기간 ZIP 다운로드</span>
+                          <span>선택 기간 ZIP 내려받기</span>
                         </button>
-                        <p className="text-center text-xs text-gray-500 mt-2 font-medium">
-                          원하는 며칠 동안의 기록을 간편하게 별도 보관합니다.
-                        </p>
                       </div>
                     </div>
                   </div>
@@ -1401,13 +1395,13 @@ export default function App() {
                   <div className="flex items-center justify-between pb-2.5 border-b border-gray-100">
                     <h3 className="text-base md:text-lg font-black text-gray-900 flex items-center gap-1.5">
                       <History className="w-5 h-5 text-indigo-500" />
-                      <span>최근 일기 백업 및 다운로드 이력</span>
+                      <span>내려받기 이력</span>
                     </h3>
                     {downloadHistory.length > 0 && (
                       <button
                         type="button"
                         onClick={() => {
-                          if (window.confirm('다운로드 이력을 모두 초기화하시겠습니까? (실제 저장된 일기는 그대로 유지됩니다)')) {
+                          if (window.confirm('내려받기 이력을 모두 초기화하시겠습니까? (이력만 초기화되며 내려받은 파일과 앱 내 보관된 일기는 그대로 유지됩니다.)')) {
                             setDownloadHistory([]);
                           }
                         }}
@@ -1423,9 +1417,6 @@ export default function App() {
                     <div className="text-center py-8 text-gray-500 text-sm flex flex-col items-center justify-center gap-1.5 bg-stone-50/50 rounded-2xl border border-dashed border-stone-200" id="empty-history-indicator">
                       <Clock className="w-7 h-7 text-stone-400 mb-1" />
                       <p className="font-extrabold text-gray-800">백업 또는 다운로드 이력이 아직 존재하지 않습니다.</p>
-                      <p className="text-xs text-gray-500 leading-relaxed font-semibold">
-                        전체/기간 압축 다운로드 혹은 개별 일기 카드의 폴더 내려받기 단추를 가동하여 백업을 개시해보세요.
-                      </p>
                     </div>
                   ) : (
                     <div className="overflow-x-auto rounded-2xl border border-stone-200/70" id="history-logs-table-wrapper">
